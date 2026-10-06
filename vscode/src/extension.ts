@@ -10,6 +10,7 @@ import {
   type SafeguardKind,
   type Segment,
   type SessionId,
+  type Provider,
   type Tag,
   type Target,
   type DiffView,
@@ -517,7 +518,7 @@ class PageProvider
     // window saves into waits to come into view.
     const refs = new vscode.RelativePattern(
       vscode.Uri.file(cabaret.commonDir()),
-      "{HEAD,packed-refs,refs/**,worktrees/*/HEAD}",
+      "{HEAD,packed-refs,refs/**,worktrees/*/HEAD,cabaret/session-links.json}",
     );
     const watcher = vscode.workspace.createFileSystemWatcher(refs);
     let settling: NodeJS.Timeout | undefined;
@@ -929,7 +930,7 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await editDescription(target.change, cabaret);
       break;
     case "Session":
-      await openSession(cabaret, target.change, target.session);
+      await openSession(target.provider, target.directory, target.session);
       break;
   }
 }
@@ -956,27 +957,48 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
   await provider.refreshOpen();
 }
 
-/** Terminals showing a resumed session, so a second Enter reveals the same one. */
-const sessionTerminals = new Map<SessionId, vscode.Terminal>();
+/** Terminals are identified by both provider and session ID. */
+const sessionTerminals = new Map<string, vscode.Terminal>();
 
-/**
- * Resume a Claude Code session in its own editor tab, running the CLI through the user's shell in
- * the workspace it was launched from.
- */
-async function openSession(cabaret: Cabaret, change: ChangeId, session: SessionId): Promise<void> {
-  const existing = sessionTerminals.get(session);
+/** Resume through the owning CLI in the original launch directory. */
+async function openSession(provider: Provider, directory: string, session: SessionId): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(session)) {
+    throw new Error("Invalid session ID");
+  }
+  const key = `${provider}:${session}`;
+  const existing = sessionTerminals.get(key);
   if (existing !== undefined) {
     existing.show();
     return;
   }
   const terminal = vscode.window.createTerminal({
-    name: `claude ${session.slice(0, 8)}`,
-    cwd: await cabaret.workspacePath(change),
+    name: `${provider.toLowerCase()} ${session.slice(0, 8)}`,
+    cwd: directory,
     location: vscode.TerminalLocation.Editor,
   });
-  sessionTerminals.set(session, terminal);
-  terminal.sendText(`claude --resume ${session}`);
+  sessionTerminals.set(key, terminal);
+  terminal.sendText(provider === "Codex" ? `codex resume ${session}` : `claude --resume ${session}`);
   terminal.show();
+}
+
+async function linkSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const provider = await vscode.window.showQuickPick(["Codex", "Claude"], {
+    title: `Link a session to ${change}`,
+  });
+  if (provider !== "Codex" && provider !== "Claude") return undefined;
+  const id = await vscode.window.showInputBox({
+    title: `${provider} session ID`,
+    prompt: "Link an existing local session, including one launched from a parent directory.",
+    validateInput: (value) => (/^[A-Za-z0-9_-]{1,128}$/.test(value) ? undefined : "Enter a valid session ID"),
+  });
+  if (!id) return undefined;
+  let directory: string | undefined;
+  if (provider === "Claude") {
+    directory = await vscode.window.showInputBox({ title: "Original Claude Code launch directory" });
+    if (!directory) return undefined;
+  }
+  await cabaret.linkSession(change, provider, id, directory);
+  return `linked ${provider} session to ${change}`;
 }
 
 /** The change a page is about: on the home page the one under the cursor, else the page's own. */
@@ -1764,7 +1786,7 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
  */
 async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
   const prompt = await vscode.window.showInputBox({
-    title: `Cabaret: Start Session on ${change}`,
+    title: `Cabaret: Start Claude Code Session on ${change}`,
     prompt: "What should the agent do?",
     ignoreFocusOut: true,
   });
@@ -2217,6 +2239,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
+    action("cabaret.linkSession", provider, linkSession),
     sequencedAction("cabaret.createWorkspace", provider, async (cabaret, change) => ({
       report: `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`,
       complete: true,

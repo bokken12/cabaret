@@ -91,7 +91,7 @@
       },
       {
         "command": "cabaret.startSession",
-        "title": "Cabaret: Start Session"
+        "title": "Cabaret: Start Claude Code Session"
       },
       {
         "command": "cabaret.stepIn",
@@ -164,6 +164,10 @@
       {
         "command": "cabaret.editDescription",
         "title": "Cabaret: Edit Description"
+      },
+      {
+        "command": "cabaret.linkSession",
+        "title": "Cabaret: Link Agent Session"
       }
     ],
     "menus": {

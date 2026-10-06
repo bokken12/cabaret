@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeSet, fmt, path::Path};
 
-use cabaret_agents::{Session, SessionId, Status};
+use cabaret_agents::{Provider, Session, SessionId, Status};
 use cabaret_config::Hints;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LineCounts, RepoPath, RevisionId, TimestampMs,
@@ -100,8 +100,8 @@ pub enum Target {
     Title { change: ChangeId },
     /// The description of `change`, for editing.
     Description { change: ChangeId },
-    /// A Claude Code session that worked on `change`.
-    Session { change: ChangeId, session: SessionId },
+    /// A provider-qualified session that worked on `change`, with its original launch directory.
+    Session { change: ChangeId, session: SessionId, provider: Provider, directory: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,7 +334,14 @@ impl Page {
         let mut lines = vec![Line::default(), Line::default().push(Segment::tagged("Sessions:", Tag::Label))];
         for session in sessions {
             let title = session.title.clone().unwrap_or_else(|| session.id.to_string());
-            let mut note = format!(" · {}", ago(session.last_active, now));
+            let mut note = format!(" · {}", session.provider);
+            match session.last_active {
+                Some(at) => note.push_str(&format!(", {}", ago(at, now))),
+                None => note.push_str(", history unavailable"),
+            }
+            if session.provider == Provider::Codex {
+                note.push_str(", live status unknown");
+            }
             match session.live {
                 Some(Status::Busy) => note.push_str(", busy"),
                 Some(Status::Idle) => note.push_str(", idle"),
@@ -345,7 +352,7 @@ impl Page {
                 Line::default()
                     .push(Segment::plain(format!("  {title}")))
                     .push(Segment::tagged(note, Tag::Muted))
-                    .leading_to(Target::Session { change: change.to_owned(), session: session.id.clone() }),
+                    .leading_to(Target::Session { change: change.to_owned(), session: session.id.clone(), provider: session.provider, directory: session.directory.display().to_string() }),
             );
         }
         let end = u32::try_from(lines.len() - 1).expect("pages are short");

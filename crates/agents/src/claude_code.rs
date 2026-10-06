@@ -14,7 +14,7 @@ use std::{
 use cabaret_types::{Result, TimestampMs};
 use serde::{Deserialize, de::IgnoredAny};
 
-use crate::{Session, SessionId, Status};
+use crate::{Provider, Session, SessionId, Status, validate_session_id};
 
 pub struct ClaudeCode {
     config_dir: PathBuf,
@@ -87,11 +87,26 @@ impl ClaudeCode {
             if let Some(Transcript { title, last_active }) = read_transcript(&path)? {
                 let id = SessionId(id.to_owned());
                 let live = live.get(&id).copied();
-                sessions.push(Session { id, title, last_active, live });
+                sessions.push(Session { id, title, last_active: Some(last_active), live, provider: Provider::Claude, directory: dir.to_owned() });
             }
         }
         sessions.sort_by_key(|session| std::cmp::Reverse(session.last_active));
         Ok(sessions)
+    }
+
+    /// An explicitly linked session, without reading every transcript in its launch directory.
+    pub fn session_in(&self, dir: &Path, id: &SessionId) -> Result<Option<Session>> {
+        validate_session_id(id)?;
+        let path = self.config_dir.join("projects").join(project_folder(dir)?).join(format!("{}.jsonl", id.0));
+        if !path.exists() {
+            return Ok(None);
+        }
+        let live = self.live()?;
+        Ok(read_transcript(&path)?.map(|transcript| Session {
+            id: id.clone(), title: transcript.title, last_active: Some(transcript.last_active),
+            live: live.get(id).copied(),
+            provider: Provider::Claude, directory: dir.to_owned(),
+        }))
     }
 
     /// Start a session in `dir` working on `prompt` without a terminal, returning once it is
