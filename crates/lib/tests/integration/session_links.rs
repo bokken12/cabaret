@@ -119,7 +119,9 @@ fn concurrent_writer_lock_leaves_existing_links_untouched() {
     let path = cab.common_dir().join("cabaret/session-links.json");
     let before = fs::read(&path).unwrap();
     let lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None).unwrap();
-    assert!(cab.unlink_session(&id("main"), Provider::Codex, &session.id).is_err());
+    let error = cab.unlink_session(&id("main"), Provider::Codex, &session.id).unwrap_err();
+    assert!(format!("{error:?}").contains("Retry the command"));
+    assert!(format!("{error:?}").contains("was not saved"));
     assert_eq!(fs::read(&path).unwrap(), before);
     drop(lock);
     cab.unlink_session(&id("main"), Provider::Codex, &session.id).unwrap();
@@ -178,7 +180,7 @@ fn unlink_can_release_a_deleted_change_without_deleting_other_sessions() {
 
 
 #[test]
-fn simultaneous_links_from_different_worktrees_cannot_both_succeed() {
+fn simultaneous_links_for_the_same_session_fail_with_an_ownership_conflict() {
     let fixture = Fixture::new();
     fixture.root("main", &[("a", "a")]);
     fixture.create("one", "main", &alice());
@@ -197,12 +199,77 @@ fn simultaneous_links_from_different_worktrees_cannot_both_succeed() {
                 directory, title: None, last_active: None, live: None,
             };
             barrier.wait();
-            cab.link_session(&id(change), &session).is_ok()
+            cab.link_session(&id(change), &session).map_err(|error| format!("{error:?}"))
         })
     }).collect();
-    let successes = handles.into_iter().map(|handle| usize::from(handle.join().unwrap())).sum::<usize>();
-    assert_eq!(successes, 1);
+    let results: Vec<_> = handles.into_iter().map(|handle| handle.join().unwrap()).collect();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    let error = results.iter().find_map(|result| result.as_ref().err()).unwrap();
+    assert!(error.contains("already has an explicit link"), "{error}");
     let links = fixture.cabaret.session_links(&id("one")).unwrap().len()
         + fixture.cabaret.session_links(&id("two")).unwrap().len();
     assert_eq!(links, 1);
+}
+
+
+#[test]
+fn simultaneous_links_for_distinct_sessions_both_succeed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("a", "a")]);
+    fixture.create("one", "main", &alice());
+    fixture.create("two", "main", &alice());
+    let one = fixture.add_workspace("one").workdir().unwrap().to_path_buf();
+    let two = fixture.add_workspace("two").workdir().unwrap().to_path_buf();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let directory = fixture.path("");
+    let handles: Vec<_> = [(one, "one"), (two, "two")].into_iter().map(|(path, change)| {
+        let barrier = barrier.clone();
+        let directory = directory.clone();
+        std::thread::spawn(move || {
+            let cab = open_cabaret(path);
+            let session = Session {
+                id: SessionId(format!("session-{change}")), provider: Provider::Codex,
+                directory, title: None, last_active: None, live: None,
+            };
+            barrier.wait();
+            cab.link_session(&id(change), &session)
+        })
+    }).collect();
+    for handle in handles { handle.join().unwrap().unwrap(); }
+    assert_eq!(fixture.cabaret.session_links(&id("one")).unwrap().len(), 1);
+    assert_eq!(fixture.cabaret.session_links(&id("two")).unwrap().len(), 1);
+}
+
+#[test]
+fn a_link_waits_for_a_brief_lock_then_reads_the_latest_registry() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("a", "a")]);
+    let path = fixture.cabaret.common_dir().join("cabaret/session-links.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None).unwrap();
+    let directory = fixture.path("");
+    let checkout = fixture.path("main");
+    let session = Session {
+        id: SessionId("after-lock".into()), provider: Provider::Codex,
+        directory: directory.clone(), title: None, last_active: None, live: None,
+    };
+    let (started, waiting) = std::sync::mpsc::channel();
+    let (done, result) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let cab = open_cabaret(checkout);
+        started.send(()).unwrap();
+        done.send(cab.link_session(&id("main"), &session)).unwrap();
+    });
+    waiting.recv().unwrap();
+    assert!(matches!(result.recv_timeout(std::time::Duration::from_millis(100)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+    let existing = cabaret_lib::SessionLink {
+        change: id("main"), provider: Provider::Codex,
+        id: SessionId("before-lock".into()), directory,
+    };
+    serde_json::to_writer(&mut lock, &[existing]).unwrap();
+    lock.commit().unwrap();
+    result.recv_timeout(std::time::Duration::from_secs(5)).unwrap().unwrap();
+    worker.join().unwrap();
+    assert_eq!(fixture.cabaret.session_links(&id("main")).unwrap().len(), 2);
 }

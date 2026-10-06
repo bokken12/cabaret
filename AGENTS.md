@@ -26,3 +26,8 @@ In the Cabaret repository, please follow Cabaret conventions. Notably:
 - A session launched from a parent container may move between worktrees after unlinking.
   Cabaret does not terminate sessions or automatically unlink on landing. The agent must
   explicitly release the link once it knows the change has landed or the task has changed.
+
+- Session link commands retry a busy registry lock for up to five seconds. If that
+  times out, retry the command and verify success before claiming a link exists.
+  Report persistent failure instead of silently proceeding as though linking succeeded.
+  An "already has an explicit link" error is a real ownership conflict: unlink first.
