@@ -21,9 +21,10 @@ mod harness;
 
 pub use claude_code::ClaudeCode;
 pub use codex::Codex;
-pub use harness::{Harness, HarnessInfo, Harnesses, ResumeCommand};
+pub use harness::{Harness, HarnessInfo, Harnesses, HarnessesCache, ResumeCommand};
 
 #[cfg(feature = "napi")]
+// Avoid shadowing the external napi crate used by generated enum bindings.
 mod napi_impl {
     use napi::{
         bindgen_prelude::{FromNapiValue, ToNapiValue},

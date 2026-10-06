@@ -128,7 +128,7 @@ const vscode = {
 };
 const source =
   readFileSync(new URL("../src/extension.ts", import.meta.url), "utf8") +
-  "\nexport { repositoryForUri, repositoryAt, routeUri, blobUri, descriptionUri, ensureRepository, pickWorkspace, onChange, PageProvider, BlobProvider, DescriptionProvider, showWorkspacePicker, stepOut, openSession, linkSession };";
+  "\nexport { repositoryForUri, repositoryAt, routeUri, blobUri, descriptionUri, ensureRepository, pickWorkspace, onChange, PageProvider, BlobProvider, DescriptionProvider, showWorkspacePicker, stepOut, openSession, linkSession, sessionsPage };";
 const code = transformSync(source, { loader: "ts", format: "cjs", target: "node22" }).code;
 const module = { exports: {} };
 vm.runInNewContext(code, {
@@ -360,4 +360,26 @@ test("session picker uses adapter capabilities and resume preserves argv and lau
   const claudeCommand = native.sessionResumeCommand("Claude", "real-session", launch);
   assert.deepEqual(claudeCommand.args, ["--resume", "real-session"]);
   assert.equal(claudeCommand.directory, launch);
+});
+
+test("session discovery failure leaves review content available", async () => {
+  const cab = ext.repositoryAt(a.feature);
+  const original = cab.sessionsPage;
+  cab.sessionsPage = async () => {
+    throw new Error("home directory unavailable");
+  };
+  const provider = new ext.PageProvider();
+  try {
+    const uri = ext.routeUri({ kind: "show", change: "feature" }, cab);
+    const text = await provider.provideTextDocumentContent(uri);
+    assert.ok(text.includes(a.feature));
+    const tail = await ext.sessionsPage(cab, "feature");
+    assert.match(
+      tail.lines.flatMap((line) => line.segments.map((segment) => segment.text)).join(""),
+      /Sessions: unavailable \((?:Error: )?home directory unavailable\)/,
+    );
+  } finally {
+    cab.sessionsPage = original;
+    provider.dispose();
+  }
 });

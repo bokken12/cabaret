@@ -6,7 +6,10 @@
 
 use crate::{ClaudeCode, Codex, Provider, Session, SessionId, validate_session_id};
 use cabaret_types::Result;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object))]
@@ -53,6 +56,24 @@ pub trait Harness: Send + Sync {
 /// Persistent adapters retain caches between editor refreshes.
 pub struct Harnesses(Vec<Box<dyn Harness>>);
 
+/// Set up optional session tooling only when requested; cache successful setup, not failures.
+#[derive(Default)]
+pub struct HarnessesCache(Mutex<Option<Arc<Harnesses>>>);
+
+impl HarnessesCache {
+    pub fn get(&self) -> Result<Arc<Harnesses>> { self.get_with(Harnesses::locate) }
+
+    fn get_with(&self, locate: impl FnOnce() -> Result<Harnesses>) -> Result<Arc<Harnesses>> {
+        let mut cached = self.0.lock().map_err(|_| "harness setup lock poisoned")?;
+        if let Some(harnesses) = cached.as_ref() {
+            return Ok(Arc::clone(harnesses));
+        }
+        let harnesses = Arc::new(locate()?);
+        *cached = Some(Arc::clone(&harnesses));
+        Ok(harnesses)
+    }
+}
+
 impl Harnesses {
     pub fn new(adapters: Vec<Box<dyn Harness>>) -> Result<Self> {
         let mut seen = std::collections::HashSet::new();
@@ -85,6 +106,8 @@ impl Harnesses {
             .ok_or_else(|| format!("unknown session provider {name:?}; run cab session providers").into())
     }
 
+    // Protect the registry boundary even for new adapters. Built-in adapters also validate
+    // in resume_command because callers can invoke their Harness::resume method directly.
     pub fn resume(&self, provider: Provider, id: &SessionId, directory: &Path) -> Result<ResumeCommand> {
         validate_session_id(id)?;
         if !directory.is_absolute() {
@@ -112,4 +135,20 @@ pub(crate) fn resume_command(program: &str, args: &[&str], id: &SessionId, direc
             .collect(),
         directory,
     })
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn optional_setup_is_deferred_retries_failure_and_reuses_success() {
+        let cache = HarnessesCache::default();
+        assert!(cache.0.lock().unwrap().is_none());
+        assert!(cache.get_with(|| Err("home directory unavailable".into())).is_err());
+        assert!(cache.0.lock().unwrap().is_none());
+        let first = cache.get_with(|| Harnesses::new(Vec::new())).unwrap();
+        let again = cache.get_with(|| panic!("successful setup must be reused")).unwrap();
+        assert!(Arc::ptr_eq(&first, &again));
+    }
 }
