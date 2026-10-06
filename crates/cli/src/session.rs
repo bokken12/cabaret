@@ -22,7 +22,8 @@ pub enum SessionCommand {
         #[arg(long, value_hint = ValueHint::DirPath)]
         directory: Option<PathBuf>,
     },
-    /// Release an explicit link when finished, before linking the session to another change.
+    /// Release an explicit link after landing or before switching tasks.
+    /// Keep the link through commits and review; landing does not unlink automatically.
     /// This leaves the session, its history, and automatic discovery intact.
     Unlink {
         #[arg(long)]
