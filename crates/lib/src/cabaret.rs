@@ -917,13 +917,11 @@ impl Cabaret {
     pub fn endorse(&self, change_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let you = ctx.identity()?;
-            if !metadata.endorsers.insert(you.clone()) {
-                return Ok(());
-            }
             let review = metadata.review.get(&you).cloned().unwrap_or_default();
             if !ctx.branch(change_id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
-                allow.check(vec![Safeguard::Unreviewed(Unreviewed { reviewers: NEBTreeSet::new(you) })])?;
+                allow.check(vec![Safeguard::Unreviewed(Unreviewed { reviewers: NEBTreeSet::new(you.clone()) })])?;
             }
+            metadata.endorsers.insert(you);
             Ok(())
         })
     }

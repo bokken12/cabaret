@@ -48,7 +48,6 @@ fn endorsing_again_writes_nothing() {
     let fixture = feature();
     fixture.mark_all("feature");
     fixture.endorse("feature");
-    fixture.commit("feature", &[("more.txt", "more\n")]);
     let head = fixture.log_head("feature");
     expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &Allow::default()));
     assert_eq!(fixture.log_head("feature"), head);
