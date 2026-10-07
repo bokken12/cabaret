@@ -497,7 +497,7 @@ fn hidden_next_step_hint_keeps_the_action_and_parent_link() {
         &"parser".parse::<ChangeId>().unwrap(),
         &snapshot(None, None, &["alice@example.com"], &["main"]),
         Some(Path::new("/repo/parser")),
-        Some(&NextStep::Rebase { parents: ["main".parse().unwrap()].into() }),
+        Some(&NextStep::Rebase { parents: nebts!["main".parse().unwrap()] }),
         &viewer(),
         Hints::Hidden,
     );
