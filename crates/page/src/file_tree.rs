@@ -116,6 +116,9 @@ fn file_row(file: &ChangedFile, counts: Option<LineCounts>, name: &str) -> Line 
     row
 }
 
-fn line_counts(added: u32, removed: u32) -> [Segment; 2] {
-    [Segment::tagged(format!(" +{added}"), Tag::Added), Segment::tagged(format!(" -{removed}"), Tag::Deleted)]
+/// Without zero sides, so a row's counts are wholly one color when it only adds or only removes lines.
+fn line_counts(added: u32, removed: u32) -> impl Iterator<Item = Segment> {
+    let added = (added > 0).then(|| Segment::tagged(format!(" +{added}"), Tag::Added));
+    let removed = (removed > 0).then(|| Segment::tagged(format!(" -{removed}"), Tag::Deleted));
+    added.into_iter().chain(removed)
 }

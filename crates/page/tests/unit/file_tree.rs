@@ -87,12 +87,12 @@ fn counts_show_on_files_and_sum_over_text_files_in_folders() {
     ];
     let page = FileTree::new(&files).render();
     expect![[r#"
-        ○ [Modified|README.md][Added| +0][Deleted| -0]
+        ○ [Modified|README.md]
         ○ [Added|assets/icon.png][Muted| binary]
         ◌ [Label|src/][Added| +15][Deleted| -5]
         ├─○ [Modified|lib.rs][Added| +3][Deleted| -5]
         ├─○ [Renamed|logo.png][Muted| binary][Muted| ← moved from old.png]
-        ╰─○ [Added|new.rs][Added| +12][Deleted| -0]
+        ╰─○ [Added|new.rs][Added| +12]
     "#]]
     .assert_eq(&super::page::markup(&page));
 }
