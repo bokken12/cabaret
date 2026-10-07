@@ -19,6 +19,7 @@ mod permanence;
 mod rebase;
 mod review;
 mod review_files;
+mod reviewing;
 mod sessions;
 mod view_diff;
 mod workspace;

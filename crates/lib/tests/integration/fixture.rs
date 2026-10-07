@@ -16,7 +16,7 @@ use std::{
 };
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Pathspec, RevisionId, TreeId,
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Pathspec, Reviewing, RevisionId, TreeId,
     log::{self, LogAction},
     safeguard::{Allow, SafeguardKind},
 };
@@ -172,6 +172,11 @@ impl Fixture {
     pub fn archive(&self, change: &str) {
         let allow = Allow::from_iter([SafeguardKind::OpenChildren, SafeguardKind::Permanent]);
         self.cabaret.archive(&id(change), &allow).unwrap();
+    }
+
+    /// Put `change` up for review by its owners.
+    pub fn request_review(&self, change: &str) {
+        self.cabaret.set_reviewing(&id(change), Reviewing::Owners, &Allow::default()).unwrap();
     }
 
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
@@ -427,6 +432,9 @@ impl Fixture {
         }
         if snapshot.permanent {
             writeln!(out, "  permanent").unwrap();
+        }
+        if snapshot.reviewing != Reviewing::None {
+            writeln!(out, "  reviewing {}", snapshot.reviewing).unwrap();
         }
         if let Some(title) = &snapshot.title {
             writeln!(out, "  title {title}").unwrap();

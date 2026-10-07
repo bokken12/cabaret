@@ -30,6 +30,8 @@ pub enum NextStep {
     Rebase {
         parents: NEBTreeSet<ChangeId>,
     },
+    /// It is up for review by no one, yet owners have files left to review.
+    RequestReview,
     /// Owners with files left to review, since owners are to review every file of their changes.
     Review {
         reviewers: NEBTreeSet<Identity>,
@@ -209,6 +211,7 @@ impl Page {
         lines.push(list("Id:", std::iter::once(Segment::tagged(id.to_string(), Tag::ChangeId))));
         lines.push(list("Status:", std::iter::once(Segment::plain(status))));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
+        lines.push(list("Reviewing:", std::iter::once(Segment::plain(change.reviewing.to_string()))));
         lines.push(list(
             "Parents:",
             change.parents.iter().map(|parent| {
@@ -383,6 +386,7 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
             (Some("^"), "resolve conflicts in".to_owned(), parents.clone().into())
         }
         NextStep::Rebase { parents } => (owner.then_some("!r"), "rebase onto".to_owned(), parents.clone().into()),
+        NextStep::RequestReview => (None, "request review".to_owned(), BTreeSet::new()),
         NextStep::Review { reviewers } => {
             (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
         }

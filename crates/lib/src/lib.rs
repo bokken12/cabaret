@@ -11,7 +11,7 @@ pub use cabaret_page::{
 };
 pub use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
-    RepoPath, Result, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, is_binary, line_diff,
-    log, safeguard,
+    RepoPath, Result, Reviewing, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, is_binary,
+    line_diff, log, safeguard,
 };
 pub use gix;

@@ -1,6 +1,6 @@
 //! The home page: what each section includes for a viewer and how the page draws it.
 
-use cabaret_lib::safeguard::Allow;
+use cabaret_lib::{Reviewing, safeguard::Allow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -142,8 +142,8 @@ fn nothing_owned_says_so() {
     .assert_eq(&home(&fixture));
 }
 
-/// Owners are to review every file of their changes, so one whose files they have not marked at
-/// the tip awaits them; changes owned by others do not, whatever their state.
+/// Owners are to review every file of their changes, so one up for review whose files they have
+/// not marked at the tip awaits them; changes owned by others do not, whatever their state.
 #[test]
 fn owned_changes_with_unmarked_files_await_review() {
     let fixture = Fixture::new();
@@ -152,6 +152,7 @@ fn owned_changes_with_unmarked_files_await_review() {
     fixture.commit("infra", &[("infra.txt", "infra\n")]);
     fixture.create("feature", "infra", &alice());
     fixture.commit("feature", &[("feature.txt", "feature\n")]);
+    fixture.request_review("feature");
     fixture.create("empty", "main", &alice());
     expect![[r#"
         Review
@@ -198,6 +199,30 @@ fn owned_changes_with_unmarked_files_await_review() {
     .assert_eq(&home(&fixture));
 }
 
+/// Owners review a change only once it is up for review, by owners or by all.
+#[test]
+fn changes_await_review_only_once_up_for_it() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("draft", "main", &alice());
+    fixture.commit("draft", &[("draft.txt", "draft\n")]);
+    fixture.create("everyone", "main", &alice());
+    fixture.commit("everyone", &[("everyone.txt", "everyone\n")]);
+    fixture.cabaret.set_reviewing(&id("everyone"), Reviewing::All, &Allow::default()).unwrap();
+    expect![[r#"
+        Review
+        ○   everyone
+
+        Owned
+        ○   draft
+        ○   everyone
+
+        Workspaces
+        ○   main
+    "#]]
+    .assert_eq(&home(&fixture));
+}
+
 /// A clean rebase moves the tip to what the reviewed tip merged with the new base already is,
 /// so nothing new awaits review; a conflicting one commits resolution to read.
 #[test]
@@ -206,6 +231,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     fixture.root("main", &[("greeting.txt", "hello\n")]);
     fixture.create("feature", "main", &alice());
     fixture.commit("feature", &[("greeting.txt", "hi\n")]);
+    fixture.request_review("feature");
     fixture.mark_all("feature");
     fixture.commit("main", &[("main.txt", "main\n")]);
     fixture.cabaret.rebase(&id("feature"), None, &Allow::default()).unwrap();

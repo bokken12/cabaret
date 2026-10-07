@@ -7,7 +7,7 @@ use std::{
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
 use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Tag, Target};
-use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, RevisionId, TimestampMs};
+use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, Reviewing, RevisionId, TimestampMs};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -21,6 +21,7 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         description: description.map(String::from),
         archived: false,
         permanent: false,
+        reviewing: Reviewing::None,
         owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),
         declared_parents: BTreeSet::new(),
@@ -109,6 +110,7 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
         [Label|Id:] [ChangeId|add-parser]
         [Label|Status:] open
         [Label|Owners:] alice@example.com, bob@example.com
+        [Label|Reviewing:] none
         [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
         [Label|Bases:] [Revision|1111111111111111111111111111111111111111], [Revision|2222222222222222222222222222222222222222]
@@ -128,6 +130,7 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
         Id: add-parser
         Status: open
         Owners: alice@example.com, bob@example.com
+        Reviewing: none
         Parents: lexer, tokens
         Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         Bases: 1111111111111111111111111111111111111111, 2222222222222222222222222222222222222222
@@ -157,6 +160,7 @@ fn a_bare_show_page_marks_what_is_missing() {
         [Label|Id:] [ChangeId|bare]
         [Label|Status:] open
         [Label|Owners:] [Muted|(none)]
+        [Label|Reviewing:] none
         [Label|Parents:] [Muted|(none)]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
         [Label|Bases:] [Muted|(none)]
