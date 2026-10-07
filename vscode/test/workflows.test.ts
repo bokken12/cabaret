@@ -66,8 +66,8 @@ suite("workflows", () => {
     assert.equal(
       actual,
       `cabaret.home
-  > review
-  cabaret:/home/review:0:  ╭──────────┬─────────┬──────────────╮
+  > owned
+  cabaret:/home/owned:0:  ╭──────────┬─────────┬──────────────╮
 cabaret.stepIn at "feature"
   > feature
   cabaret:/show/feature:0: feature
@@ -87,8 +87,8 @@ cabaret.stepOut
   > feature
   cabaret:/show/feature:0: feature
 cabaret.stepOut
-  > review
-  cabaret:/home/review:4: ○   feature
+  > owned
+  cabaret:/home/owned:4: ○   feature
 `,
     );
   });
@@ -105,8 +105,8 @@ cabaret.stepOut
     assert.equal(
       actual,
       `cabaret.home
-  > review
-  cabaret:/home/review:4: ○   feature
+  > owned
+  cabaret:/home/owned:4: ○   feature
 cabaret.stepIn at "feature"
   > feature
   cabaret:/show/feature:0: feature
@@ -142,8 +142,8 @@ cabaret.mark
       assert.equal(
         actual,
         `cabaret.home
-  > review
-  cabaret:/home/review:4: nothing awaiting review by test@example.com
+  > owned
+  cabaret:/home/owned:4: ○   feature
 cabaret.stepIn at "workspaces"
   > workspaces
   cabaret:/home/workspaces:0:  ╭──────────┬─────────┬──────────────╮
