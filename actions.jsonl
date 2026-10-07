@@ -1,0 +1,4 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/view_diff.rs","revision":"add5aeaa2fe772dc455d34becd33202cfda3933f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/src/file_tree.rs","revision":"add5aeaa2fe772dc455d34becd33202cfda3933f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/file_tree.rs","revision":"add5aeaa2fe772dc455d34becd33202cfda3933f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/test/workflows.test.ts","revision":"add5aeaa2fe772dc455d34becd33202cfda3933f"}
