@@ -1,0 +1,3 @@
+Remove cabaret-agents and Claude Code session support
+
+Deletes the cabaret-agents crate and everything built on it: the sessions tail of show pages and its Session page target, Cabaret::sessions/start_session/sessions_page and their napi bindings, and in VS Code the Start Session command, the cabaret.sessionArgs setting, resuming a session in a terminal, and the base/tail split pages were served in.
