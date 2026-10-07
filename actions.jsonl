@@ -1,0 +1,17 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/change.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/node.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/endorse.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/fixture.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/land.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/mod.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/next_step.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/src/page.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/page.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/context.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/change_snapshot.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/log.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/safeguard.rs","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/package.json","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"26b184dd3e3ed55f8b35fb91674802dd3f6a2c1f"}
