@@ -6,7 +6,7 @@ use std::{
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
-use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Target};
+use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Tag, Target};
 use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, RevisionId, TimestampMs};
 use expect_test::expect;
 use nonempty_collections::nebts;
@@ -108,12 +108,14 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
 
         [Label|Id:] [ChangeId|add-parser]
         [Label|Status:] open
-        [Label|Next step:] [Muted|(none)]
         [Label|Owners:] alice@example.com, bob@example.com
         [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
         [Label|Bases:] [Revision|1111111111111111111111111111111111111111], [Revision|2222222222222222222222222222222222222222]
         [Label|Workspace:] /repo/add-parser
+
+
+        [Label|Next step:] [Muted|(none)]
     "#]]
     .assert_eq(&markup(&page));
     expect![[r#"
@@ -125,12 +127,14 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
 
         Id: add-parser
         Status: open
-        Next step: (none)
         Owners: alice@example.com, bob@example.com
         Parents: lexer, tokens
         Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         Bases: 1111111111111111111111111111111111111111, 2222222222222222222222222222222222222222
         Workspace: /repo/add-parser
+
+
+        Next step: (none)
     "#]]
     .assert_eq(&page.to_string());
 }
@@ -152,12 +156,14 @@ fn a_bare_show_page_marks_what_is_missing() {
 
         [Label|Id:] [ChangeId|bare]
         [Label|Status:] open
-        [Label|Next step:] [Muted|(none)]
         [Label|Owners:] [Muted|(none)]
         [Label|Parents:] [Muted|(none)]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
         [Label|Bases:] [Muted|(none)]
         [Label|Workspace:] [Muted|(none)]
+
+
+        [Label|Next step:] [Muted|(none)]
     "#]]
     .assert_eq(&markup(&page));
 }
@@ -464,23 +470,41 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     }
     expect![[r#"
         owned by viewer:
-        [Label|Next step:] add code
-        [Label|Next step:] resolve conflicts in a.txt, b.txt
-        [Label|Next step:] [^] resolve conflicts in [ChangeId>change:lexer|lexer]
-        [Label|Next step:] [!r] rebase onto [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [Label|Next step:] [r] review by alice@example.com, bob@example.com
-        [Label|Next step:] review by bob@example.com
-        [Label|Next step:] [^] land parents [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [Label|Next step:] [!l] land into [ChangeId>change:lexer|lexer]
+        [Accent|Next step:] [Accent|add code]
+        [Accent|Next step:] [Accent|resolve conflicts in a.txt, b.txt]
+        [Accent|Next step:] [Shortcut|[^]] [Accent|resolve conflicts in] [ChangeId>change:lexer|lexer]
+        [Accent|Next step:] [Shortcut|[!r]] [Accent|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Accent|Next step:] [Shortcut|[r]] [Accent|review by alice@example.com, bob@example.com]
+        [Accent|Next step:] [Accent|review by bob@example.com]
+        [Accent|Next step:] [Shortcut|[^]] [Accent|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Accent|Next step:] [Shortcut|[!l]] [Accent|land into] [ChangeId>change:lexer|lexer]
         owned by another:
-        [Label|Next step:] add code
-        [Label|Next step:] resolve conflicts in a.txt, b.txt
-        [Label|Next step:] [^] resolve conflicts in [ChangeId>change:lexer|lexer]
-        [Label|Next step:] rebase onto [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [Label|Next step:] [r] review by alice@example.com, bob@example.com
-        [Label|Next step:] review by bob@example.com
-        [Label|Next step:] [^] land parents [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [Label|Next step:] land into [ChangeId>change:lexer|lexer]
+        [Accent|Next step:] [Accent|add code]
+        [Accent|Next step:] [Accent|resolve conflicts in a.txt, b.txt]
+        [Accent|Next step:] [Shortcut|[^]] [Accent|resolve conflicts in] [ChangeId>change:lexer|lexer]
+        [Accent|Next step:] [Accent|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Accent|Next step:] [Shortcut|[r]] [Accent|review by alice@example.com, bob@example.com]
+        [Accent|Next step:] [Accent|review by bob@example.com]
+        [Accent|Next step:] [Shortcut|[^]] [Accent|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Accent|Next step:] [Accent|land into] [ChangeId>change:lexer|lexer]
     "#]]
     .assert_eq(&out);
+}
+
+#[test]
+fn hidden_next_step_hint_keeps_the_action_and_parent_link() {
+    let page = Page::show(
+        &"parser".parse::<ChangeId>().unwrap(),
+        &snapshot(None, None, &["alice@example.com"], &["main"]),
+        Some(Path::new("/repo/parser")),
+        Some(&NextStep::Rebase { parents: ["main".parse().unwrap()].into() }),
+        &viewer(),
+        Hints::Hidden,
+    );
+    let line = page.lines.last().unwrap();
+    assert!(line.segments.iter().all(|segment| segment.tag != Some(Tag::Shortcut)));
+    expect![[r#"
+        [Accent|Next step:] [Accent|rebase onto] [ChangeId>change:main|main]
+    "#]]
+    .assert_eq(&markup(&Page { lines: vec![line.clone()], ..Page::default() }));
 }

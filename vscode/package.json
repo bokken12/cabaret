@@ -29,6 +29,18 @@
     "typescript": "catalog:"
   },
   "contributes": {
+    "colors": [
+      {
+        "id": "cabaret.accentForeground",
+        "description": "Foreground color of accented text in Cabaret.",
+        "defaults": {
+          "dark": "#E5C07B",
+          "light": "#795600",
+          "highContrast": "#FFD966",
+          "highContrastLight": "#684B00"
+        }
+      }
+    ],
     "languages": [
       {
         "id": "cabaret",

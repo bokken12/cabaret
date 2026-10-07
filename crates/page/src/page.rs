@@ -51,6 +51,8 @@ pub enum Tag {
     ChangeId,
     Revision,
     Label,
+    Accent,
+    Shortcut,
     Muted,
     Added,
     Deleted,
@@ -206,7 +208,6 @@ impl Page {
         };
         lines.push(list("Id:", std::iter::once(Segment::tagged(id.to_string(), Tag::ChangeId))));
         lines.push(list("Status:", std::iter::once(Segment::plain(status))));
-        lines.push(self::next_step(next_step, change.owners.contains(viewer), viewer, hints));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
         lines.push(list(
             "Parents:",
@@ -219,6 +220,8 @@ impl Page {
         lines.push(list("Tip:", std::iter::once(revision(&change.tip))));
         lines.push(list("Bases:", change.bases.iter().map(revision)));
         lines.push(list("Workspace:", workspace.map(|path| Segment::plain(path.display().to_string())).into_iter()));
+        lines.extend([Line::default(), Line::default()]);
+        lines.push(self::next_step(next_step, change.owners.contains(viewer), viewer, hints));
         Self { lines, ..Self::default() }
     }
 
@@ -386,12 +389,11 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone().into()),
         NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
     };
-    let hint = match (key, hints) {
-        (Some(key), Hints::Shown) => format!("[{key}] "),
-        _ => String::new(),
-    };
-    let mut line =
-        Line::default().push(Segment::tagged("Next step:", Tag::Label)).push(Segment::plain(format!(" {hint}{text}")));
+    let mut line = Line::default().push(Segment::tagged("Next step:", Tag::Accent)).push(Segment::plain(" "));
+    if let (Some(key), Hints::Shown) = (key, hints) {
+        line = line.push(Segment::tagged(format!("[{key}]"), Tag::Shortcut)).push(Segment::plain(" "));
+    }
+    line = line.push(Segment::tagged(text, Tag::Accent));
     for (i, change) in changes.into_iter().enumerate() {
         line = line.push(Segment::plain(if i == 0 { " " } else { ", " })).push(
             Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change, context: false }),
