@@ -4,11 +4,8 @@
 
 use std::{collections::BTreeSet, fmt, path::Path};
 
-use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
-use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LineCounts, RepoPath, RevisionId, TimestampMs,
-};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LineCounts, RepoPath, RevisionId};
 use nonempty_collections::NEBTreeSet;
 
 use crate::{file_tree::FileTree, home::HomeSection};
@@ -105,8 +102,6 @@ pub enum Target {
     Title { change: ChangeId },
     /// The description of `change`, for editing.
     Description { change: ChangeId },
-    /// A Claude Code session that worked on `change`.
-    Session { change: ChangeId, session: SessionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,34 +326,6 @@ impl Page {
         Self { lines: vec![rule(top), labels, rule(bottom)], ..Self::default() }
     }
 
-    /// The tail of a show page: one line per Claude Code session that worked on `change`, each
-    /// leading to itself, folding under their label. Sessions are listed as given, so callers
-    /// order them.
-    pub fn sessions(change: &ChangeIdRef, sessions: &[Session], now: TimestampMs) -> Self {
-        if sessions.is_empty() {
-            return Self { lines: vec![Line::default(), list("Sessions:", std::iter::empty())], ..Self::default() };
-        }
-        let mut lines = vec![Line::default(), Line::default().push(Segment::tagged("Sessions:", Tag::Label))];
-        for session in sessions {
-            let title = session.title.clone().unwrap_or_else(|| session.id.to_string());
-            let mut note = format!(" · {}", ago(session.last_active, now));
-            match session.live {
-                Some(Status::Busy) => note.push_str(", busy"),
-                Some(Status::Idle) => note.push_str(", idle"),
-                Some(Status::Unknown) => note.push_str(", running"),
-                None => {}
-            }
-            lines.push(
-                Line::default()
-                    .push(Segment::plain(format!("  {title}")))
-                    .push(Segment::tagged(note, Tag::Muted))
-                    .leading_to(Target::Session { change: change.to_owned(), session: session.id.clone() }),
-            );
-        }
-        let end = u32::try_from(lines.len() - 1).expect("pages are short");
-        Self { lines, folds: vec![Fold { start: 1, end }], ..Self::default() }
-    }
-
     /// A page of one muted line, for when there is nothing to show.
     pub fn message(text: impl Into<String>) -> Self {
         Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], ..Self::default() }
@@ -404,18 +371,6 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         );
     }
     line
-}
-
-/// How long before `now` something happened, coarsely: the reader wants to know whether a session
-/// is still warm, not the minute it stopped.
-fn ago(then: TimestampMs, now: TimestampMs) -> String {
-    let seconds = now.0.saturating_sub(then.0) / 1000;
-    match seconds {
-        s if s < 60 => "just now".to_owned(),
-        s if s < 3600 => format!("{}m ago", s / 60),
-        s if s < 86400 => format!("{}h ago", s / 3600),
-        s => format!("{}d ago", s / 86400),
-    }
 }
 
 /// `Label: a, b` or `Label: (none)`.

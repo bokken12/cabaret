@@ -3,7 +3,6 @@ mod cabaret;
 mod node;
 
 pub use cabaret::{Cabaret, Prune, Rebase};
-pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_config::{FetchInterval, Hints, Prefix, Scope, Setting};
 pub use cabaret_page::{
     DiffView, FileTree, Fold, Home, HomeGraph, HomeNode, HomeSection, Line, NextStep, Page, Segment, TabCounts, Tag,

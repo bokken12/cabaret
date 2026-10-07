@@ -8,7 +8,6 @@ use std::{
     sync::Arc,
 };
 
-use cabaret_agents::ClaudeCode;
 use cabaret_config::FetchInterval;
 use cabaret_page::{DiffView, HomeSection, Page};
 use cabaret_types::{
@@ -176,19 +175,6 @@ impl CabaretJs {
     #[napi]
     pub async fn change_tabs_page(&self, change: ChangeId, view: Option<DiffView>) -> napi::Result<Page> {
         self.blocking(move |cabaret| cabaret.change_tabs_page(&change, view)).await
-    }
-
-    /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
-    /// it is running. `args` go to the CLI ahead of the prompt.
-    #[napi]
-    pub async fn start_session(&self, change: ChangeId, prompt: String, args: Vec<String>) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.start_session(&change, &prompt, &args, &ClaudeCode::locate()?)).await
-    }
-
-    /// The Claude Code sessions that worked on `change`, as the tail of its show page.
-    #[napi]
-    pub async fn sessions_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.sessions_page(&change, &ClaudeCode::locate()?)).await
     }
 
     /// `section` of the home page for `viewer`, defaulting to git's user.email.

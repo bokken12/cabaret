@@ -8,7 +8,6 @@ import {
   type Safeguard,
   type SafeguardKind,
   type Segment,
-  type SessionId,
   type Tag,
   type Target,
   type DiffView,
@@ -160,25 +159,6 @@ function fetchPeriodically(): vscode.Disposable {
   });
 }
 
-/**
- * The sessions tail of a show page. A failure to list is reported in place of the list rather
- * than failing the page.
- */
-async function sessionsPage(cabaret: Cabaret, change: ChangeId): Promise<Page> {
-  try {
-    return await cabaret.sessionsPage(change);
-  } catch (error) {
-    return {
-      lines: [
-        { segments: [] },
-        { segments: [{ text: `Sessions: unavailable (${errorMessage(error)})`, tag: "Muted" }] },
-      ],
-      folds: [],
-      cursor: 0,
-    };
-  }
-}
-
 function pageText(page: Page): string {
   return page.lines.map((line) => `${line.segments.map((segment) => segment.text).join("")}\n`).join("");
 }
@@ -290,13 +270,6 @@ async function inPageLanguage(document: vscode.TextDocument): Promise<vscode.Tex
     : vscode.languages.setTextDocumentLanguage(document, PAGE_LANGUAGE);
 }
 
-/** A page as its document shows it: rendered from the repository, and on a show page its sessions. */
-type Served = { base: Page; tail: Page | undefined };
-
-function whole({ base, tail }: Served): Page {
-  return tail === undefined ? base : inserted(base, base.lines.length, tail);
-}
-
 function openDocument(uri: vscode.Uri): vscode.TextDocument | undefined {
   return vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
 }
@@ -315,9 +288,9 @@ class PageProvider
     vscode.FoldingRangeProvider,
     vscode.Disposable
 {
-  private readonly served = new Map<string, Served>();
+  private readonly served = new Map<string, Page>();
   /** What to serve on the re-read that `changed` triggers. */
-  private readonly pending = new Map<string, Served>();
+  private readonly pending = new Map<string, Page>();
   /** Each page's latest update, so that updates are served in the order they were started. */
   private readonly updates = new Map<string, Promise<void>>();
   /** The pages on screen, to tell those coming into view. */
@@ -360,14 +333,14 @@ class PageProvider
     if (pending !== undefined) {
       this.pending.delete(key);
       this.served.set(key, pending);
-      return pageText(whole(pending));
+      return pageText(pending);
     }
-    const served = { base: await this.render(uri), tail: this.served.get(key)?.tail };
-    this.served.set(key, served);
-    return pageText(whole(served));
+    const page = await this.render(uri);
+    this.served.set(key, page);
+    return pageText(page);
   }
 
-  /** The page `uri` now shows in the repository, without its sessions. */
+  /** The page `uri` now shows in the repository. */
   private async render(uri: vscode.Uri): Promise<Page> {
     const route = parseRoute(uri);
     if (route.kind === "home") {
@@ -416,14 +389,14 @@ class PageProvider
    * Show `next` in the open document of `uri`, rather than leave it stale until the re-read that
    * `changed` triggers lands.
    */
-  private async serve(uri: vscode.Uri, next: Served): Promise<void> {
+  private async serve(uri: vscode.Uri, next: Page): Promise<void> {
     const key = uri.toString();
     const document = openDocument(uri);
     if (document === undefined) {
       return;
     }
     // VS Code applies no edit, so raises no event, for a re-read of the same text.
-    if (pageText(whole(next)) === document.getText()) {
+    if (pageText(next) === document.getText()) {
       this.served.set(key, next);
       return;
     }
@@ -447,41 +420,21 @@ class PageProvider
   }
 
   /**
-   * Re-render `uri` from the repository if a document of it is open, its sessions to follow. A
-   * failure is shown on the page, which no longer shows what is there, rather than reported:
-   * nothing the user did just now failed.
+   * Re-render `uri` from the repository if a document of it is open. A failure is shown on the
+   * page, which no longer shows what is there, rather than reported: nothing the user did just now
+   * failed.
    */
   private refresh(uri: vscode.Uri): Promise<void> {
     return this.update(uri, async () => {
       if (openDocument(uri) === undefined) {
         return;
       }
-      const base = await this.render(uri).catch((error: unknown): Page => ({
+      const page = await this.render(uri).catch((error: unknown): Page => ({
         lines: [{ segments: [{ text: `unavailable (${errorMessage(error)})`, tag: "Muted" }] }],
         folds: [],
         cursor: 0,
       }));
-      // The sessions listed before stay until relisted, rather than blink out.
-      await this.serve(uri, { base, tail: this.served.get(uri.toString())?.tail });
-      void this.listSessions(uri, base);
-    });
-  }
-
-  /**
-   * Listing sessions reads every transcript in the workspace, which is slow next to reading the
-   * repository, so a show page is served without its sessions and gains them once listed, unless
-   * re-rendered meanwhile.
-   */
-  private async listSessions(uri: vscode.Uri, base: Page): Promise<void> {
-    const route = parseRoute(uri);
-    if (route.kind !== "show") {
-      return;
-    }
-    const tail = await sessionsPage(openCabaret(), route.change);
-    await this.update(uri, async () => {
-      if (this.served.get(uri.toString())?.base === base) {
-        await this.serve(uri, { base, tail });
-      }
+      await this.serve(uri, page);
     });
   }
 
@@ -531,8 +484,7 @@ class PageProvider
   }
 
   page(uri: vscode.Uri): Page | undefined {
-    const served = this.served.get(uri.toString());
-    return served === undefined ? undefined : whole(served);
+    return this.served.get(uri.toString());
   }
 
   targetUnderCursor(editor: vscode.TextEditor): Target | undefined {
@@ -573,7 +525,7 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = routeUri(route);
-    // A page not yet open is rendered as it opens, and its sessions listed as it comes into view.
+    // A page not yet open is rendered as it opens.
     if (openDocument(uri) !== undefined) {
       await this.refresh(uri);
       this.onScreen.add(uri.toString());
@@ -795,9 +747,6 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
     case "Description":
       await editDescription(target.change);
       break;
-    case "Session":
-      await openSession(cabaret, target.change, target.session);
-      break;
   }
 }
 
@@ -821,29 +770,6 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
   }
   await cabaret.setTitle(change, edited === "" ? undefined : edited);
   await provider.refreshOpen();
-}
-
-/** Terminals showing a resumed session, so a second Enter reveals the same one. */
-const sessionTerminals = new Map<SessionId, vscode.Terminal>();
-
-/**
- * Resume a Claude Code session in its own editor tab, running the CLI through the user's shell in
- * the workspace it was launched from.
- */
-async function openSession(cabaret: Cabaret, change: ChangeId, session: SessionId): Promise<void> {
-  const existing = sessionTerminals.get(session);
-  if (existing !== undefined) {
-    existing.show();
-    return;
-  }
-  const terminal = vscode.window.createTerminal({
-    name: `claude ${session.slice(0, 8)}`,
-    cwd: await cabaret.workspacePath(change),
-    location: vscode.TerminalLocation.Editor,
-  });
-  sessionTerminals.set(session, terminal);
-  terminal.sendText(`claude --resume ${session}`);
-  terminal.show();
 }
 
 /** The change a page is about: on the home page the one under the cursor, else the page's own. */
@@ -1595,37 +1521,6 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `removed ${parent} as a parent of ${change}`;
 }
 
-/**
- * Start a headless Claude Code session on `change` with a prompt from the user, first offering to
- * create a workspace for a change checked out nowhere.
- */
-async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const prompt = await vscode.window.showInputBox({
-    title: `Cabaret: Start Session on ${change}`,
-    prompt: "What should the agent do?",
-    ignoreFocusOut: true,
-  });
-  if (prompt === undefined || prompt === "") {
-    return undefined;
-  }
-  if ((await cabaret.placement(change)).kind === "Nowhere") {
-    const create = await vscode.window.showWarningMessage(
-      `${change} is not checked out in any workspace. Create one for it?`,
-      { modal: true },
-      "Create Workspace",
-    );
-    if (create === undefined) {
-      return undefined;
-    }
-    await cabaret.workspaceAdd(change);
-  }
-  const args = vscode.workspace
-    .getConfiguration("cabaret")
-    .get<string[]>("sessionArgs", ["--permission-mode", "auto", "--permission-prompts", "none"]);
-  await cabaret.startSession(change, prompt, args);
-  return `started a session on ${change}`;
-}
-
 /** The change among `changes` checked out in this window's workspace, if any. */
 async function changeHere(cabaret: Cabaret, changes: Iterable<ChangeId>): Promise<ChangeId | undefined> {
   for (const change of changes) {
@@ -1937,14 +1832,7 @@ export function activate(context: vscode.ExtensionContext) {
         provider.rememberSelection(textEditor);
       }
     }),
-    vscode.window.onDidCloseTerminal((terminal) => {
-      for (const [session, open] of sessionTerminals) {
-        if (open === terminal) {
-          sessionTerminals.delete(session);
-        }
-      }
-    }),
-    // A page that grew a tail needs its new lines painted too.
+    // A re-rendered page needs its new lines painted too.
     vscode.workspace.onDidChangeTextDocument(({ document }) => {
       if (document.uri.scheme === SCHEME) {
         for (const editor of vscode.window.visibleTextEditors) {
@@ -2038,7 +1926,6 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
-    action("cabaret.startSession", provider, startSession),
     sequencedAction("cabaret.createWorkspace", provider, async (cabaret, change) => ({
       report: `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`,
       complete: true,

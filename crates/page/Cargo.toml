@@ -6,10 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [features]
-napi = ["dep:napi", "dep:napi-derive", "cabaret-types/napi", "cabaret-agents/napi"]
+napi = ["dep:napi", "dep:napi-derive", "cabaret-types/napi"]
 
 [dependencies]
-cabaret-agents.workspace = true
 cabaret-config.workspace = true
 cabaret-types.workspace = true
 napi = { workspace = true, optional = true }

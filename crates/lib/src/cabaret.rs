@@ -5,7 +5,6 @@ use std::{
     process::Command,
 };
 
-use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, TabCounts};
 use cabaret_transaction::{
@@ -13,7 +12,7 @@ use cabaret_transaction::{
 };
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
-    RepoPath, Result, Reviewing, RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    RepoPath, Result, Reviewing, RevisionId, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
         Allow, ArchivedParent, ArchivedParents, BaseMoves, Conflicted, Empty, ImpermanentParents, NoCommonAncestor,
         NonOwner, OpenChildren, Ownerless, ParentConflicted, ParentUnreviewed, Parentless, Permanent, RedundantParent,
@@ -602,32 +601,6 @@ impl Cabaret {
         };
         let counts = TabCounts { diff: count(DiffView::Diff)?, review: count(DiffView::Review)?, workspace };
         Ok(Page::change_tabs(change_id, view, counts, self.config::<Hints>()?.unwrap_or_default()))
-    }
-
-    /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is
-    /// checked out nowhere, in its default workspace location: sessions outlive the workspace
-    /// they worked in.
-    pub fn sessions(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Vec<Session>> {
-        let dir = match self.workspace_holding(change_id)? {
-            Some(workspace) => self.workspace_path(workspace.to_ref())?,
-            None => self.default_workspace_path(change_id)?,
-        };
-        claude.sessions_in(&dir)
-    }
-
-    /// Start a Claude Code session on `prompt` in the workspace holding `change_id`.
-    pub fn start_session(
-        &self,
-        change_id: &ChangeIdRef,
-        prompt: &str,
-        args: &[String],
-        claude: &ClaudeCode,
-    ) -> Result<()> {
-        claude.start(&self.workspace_path(self.workspace_of(change_id)?.to_ref())?, prompt, args)
-    }
-
-    pub fn sessions_page(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Page> {
-        Ok(Page::sessions(change_id, &self.sessions(change_id, claude)?, TimestampMs::now()))
     }
 
     /// The id a change named `name` is created under: `name` behind the configured prefix.

@@ -12,7 +12,7 @@ const { Cabaret } = createRequire(import.meta.url)("@cabaret/node");
 const root = realpathSync(mkdtempSync("/tmp/cabaret-vscode-"));
 process.on("exit", () => rmSync(root, { recursive: true, force: true }));
 
-// Neither the fixture nor the extension under test sees the developer's own git config, identity, or Claude sessions.
+// Neither the fixture nor the extension under test sees the developer's own git config or identity.
 const env = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -20,10 +20,8 @@ const env = {
   GIT_AUTHOR_EMAIL: "test@example.com",
   GIT_COMMITTER_NAME: "Test",
   GIT_COMMITTER_EMAIL: "test@example.com",
-  CLAUDE_CONFIG_DIR: join(root, "claude"),
 };
 Object.assign(process.env, env);
-mkdirSync(env.CLAUDE_CONFIG_DIR);
 
 const workspace = join(root, "main");
 const git = (...args) => execFileSync("git", args, { cwd: workspace, stdio: "ignore" });

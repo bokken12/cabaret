@@ -4,10 +4,9 @@ use std::{
     path::Path,
 };
 
-use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
 use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Tag, Target};
-use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, Reviewing, RevisionId, TimestampMs};
+use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, Reviewing, RevisionId};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -49,7 +48,6 @@ fn describe(target: &Target) -> String {
         }
         Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
-        Target::Session { change, session } => format!("session:{change}:{session}"),
     }
 }
 
@@ -272,43 +270,6 @@ fn a_workspace_page_targets_each_file_on_disk() {
         [Muted|no uncommitted files]
     "#]]
     .assert_eq(&markup(&Page::files(&change, None, DiffView::Workspace, &[])));
-}
-
-#[test]
-fn sessions_page_lists_each_session_with_its_age_and_leads_to_it() {
-    let now = TimestampMs(100 * 86_400_000);
-    let session = |id: &str, title: Option<&str>, seconds_ago: u64, live: Option<Status>| Session {
-        id: SessionId(id.to_owned()),
-        title: title.map(str::to_owned),
-        last_active: TimestampMs(now.0 - seconds_ago * 1000),
-        live,
-    };
-    let change = "parser".parse::<ChangeId>().unwrap();
-    let page = Page::sessions(
-        &change,
-        &[
-            session("a1", Some("Fix the parser"), 5, Some(Status::Busy)),
-            session("b2", Some("Add tests"), 42 * 60, Some(Status::Idle)),
-            session("c3", None, 3 * 3600 + 59 * 60, Some(Status::Unknown)),
-            session("d4", Some("Old"), 9 * 86_400, None),
-        ],
-        now,
-    );
-    expect![[r#"
-
-        [Label|Sessions:]
-          Fix the parser[Muted| · just now, busy] => session:parser:a1
-          Add tests[Muted| · 42m ago, idle] => session:parser:b2
-          c3[Muted| · 3h ago, running] => session:parser:c3
-          Old[Muted| · 9d ago] => session:parser:d4
-    "#]]
-    .assert_eq(&markup(&page));
-    expect![["[Fold { start: 1, end: 5 }]"]].assert_eq(&format!("{:?}", page.folds));
-    expect![[r#"
-
-        [Label|Sessions:] [Muted|(none)]
-    "#]]
-    .assert_eq(&markup(&Page::sessions(&change, &[], now)));
 }
 
 #[test]

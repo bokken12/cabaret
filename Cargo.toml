@@ -26,7 +26,6 @@ multiple_crate_versions = "allow"
 new_without_default = "allow"
 
 [workspace.dependencies]
-cabaret-agents = { path = "crates/agents" }
 cabaret-config = { path = "crates/config" }
 cabaret-lib = { path = "crates/lib" }
 cabaret-page = { path = "crates/page" }
