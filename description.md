@@ -1,0 +1,1 @@
+Omit zero sides of line counts on the files page, so pure additions and deletions read as one color, as git diff --shortstat does.
