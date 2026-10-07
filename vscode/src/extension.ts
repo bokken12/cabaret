@@ -1679,14 +1679,14 @@ async function deleteWorkspace(cabaret: Cabaret, change: ChangeId, allow: Safegu
 /**
  * Land once the user confirms, since landing cannot be undone. Safeguards get a second
  * confirmation of their own, so a habitual Enter on the routine one cannot bypass them. Landing
- * archives a change that is not permanent, leaving its workspace nothing to do, so deleting those
- * workspaces is the default.
+ * archives a change that is not permanent, leaving its dedicated workspace nothing to do, so
+ * deleting those workspaces is the default. Shared workspaces, like main, go on to other changes.
  */
 async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const doomed = new Map<ChangeId, WorkspaceId>();
   for (const change of changes) {
     const { permanent, workspace } = await cabaret.change(change);
-    if (!permanent && workspace !== undefined) {
+    if (!permanent && workspace !== undefined && (await cabaret.workspaceIsDedicated(change))) {
       doomed.set(change, workspace);
     }
   }
@@ -1772,10 +1772,10 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step>
 }
 
 /**
- * Toggle whether each change is archived. Archiving leaves a change's workspace nothing to do, so
- * the user is first offered deleting those workspaces, as when landing. Children are drawn below
- * their parents, so unarchiving goes top down and archiving bottom up, sparing the safeguards
- * against archived parents and open children within the selection.
+ * Toggle whether each change is archived. Archiving leaves a change's dedicated workspace nothing
+ * to do, so the user is first offered deleting those workspaces, as when landing. Children are
+ * drawn below their parents, so unarchiving goes top down and archiving bottom up, sparing the
+ * safeguards against archived parents and open children within the selection.
  */
 async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const unarchiving: ChangeId[] = [];
@@ -1784,7 +1784,7 @@ async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promis
   for (const change of changes) {
     const { archived, workspace } = await cabaret.change(change);
     (archived ? unarchiving : archiving).push(change);
-    if (!archived && workspace !== undefined) {
+    if (!archived && workspace !== undefined && (await cabaret.workspaceIsDedicated(change))) {
       doomed.set(change, workspace);
     }
   }

@@ -279,6 +279,12 @@ impl CabaretJs {
             .await
     }
 
+    /// Whether the workspace holding `change` is that change's own rather than one to switch between changes.
+    #[napi]
+    pub async fn workspace_is_dedicated(&self, change: ChangeId) -> napi::Result<bool> {
+        self.blocking(move |cabaret| cabaret.workspace_is_dedicated(cabaret.workspace_of(&change)?.to_ref())).await
+    }
+
     #[napi]
     pub async fn placement(&self, change: ChangeId) -> napi::Result<Placement> {
         self.blocking(move |cabaret| placement(cabaret, &change)).await
