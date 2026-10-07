@@ -152,6 +152,7 @@ impl<'ctx> TransactionContext<'ctx> {
             description: metadata.description.clone(),
             archived: metadata.archived,
             permanent: metadata.permanent,
+            reviewing: metadata.reviewing,
             owners: metadata.owners.clone(),
             parents,
             declared_parents: metadata.declared_parents.clone(),

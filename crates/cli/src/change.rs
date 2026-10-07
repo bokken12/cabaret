@@ -2,14 +2,14 @@ use std::io::Write;
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, name,
+    Reviewing, RevisionId, name,
     safeguard::{Allow, SafeguardKind},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
-    args::{change_completer, parse_revision, revision_completer, safeguard_kind},
+    args::{change_completer, parse_revision, reviewing, revision_completer, safeguard_kind},
     diff::unified,
 };
 
@@ -156,6 +156,15 @@ pub enum ChangeCommand {
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
+    /// Set who the change is up for review by.
+    Reviewing {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(value_parser = reviewing())]
+        reviewing: Reviewing,
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
+    },
     Show {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -298,6 +307,13 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto, allow } => {
                 rebase(cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
+            }
+            ChangeCommand::Reviewing { change, reviewing, allow } => {
+                let change = or_current(change)?;
+                cabaret
+                    .set_reviewing(&change, reviewing, &Allow::from_iter(allow))
+                    .map_err(|error| refusal(&format!("set {change} reviewing"), error))?;
+                println!("{change} reviewing: {reviewing}");
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {

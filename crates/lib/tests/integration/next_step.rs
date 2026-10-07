@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use cabaret_lib::{
-    Hints, Scope,
+    Hints, Reviewing, Scope,
     safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
@@ -17,8 +17,12 @@ fn next_step(fixture: &Fixture, change: &str) -> String {
 }
 
 #[test]
-fn scene_next_steps() {
+fn scene_next_steps_up_for_review() {
     let fixture = scene();
+    let allow = Allow::from_iter([SafeguardKind::NonOwner]);
+    for change in fixture.cabaret.changes().unwrap() {
+        fixture.cabaret.set_reviewing(&change, Reviewing::Owners, &allow).unwrap();
+    }
     let mut out = String::new();
     for change in fixture.cabaret.changes().unwrap() {
         writeln!(out, "{change}: {}", next_step(&fixture, &change.to_string())).unwrap();
@@ -46,9 +50,21 @@ fn scene_next_steps() {
 }
 
 #[test]
-fn reviewed_change_lands_into_its_parent() {
+fn unreviewed_change_requests_review_until_up_for_it() {
+    let fixture = scene();
+    expect!["request review"].assert_eq(&next_step(&fixture, "single"));
+    fixture.request_review("single");
+    expect!["[r] review by alice@example.com"].assert_eq(&next_step(&fixture, "single"));
+    fixture.cabaret.set_reviewing(&id("single"), Reviewing::All, &Allow::default()).unwrap();
+    expect!["[r] review by alice@example.com"].assert_eq(&next_step(&fixture, "single"));
+}
+
+#[test]
+fn reviewed_change_lands_whether_or_not_up_for_review() {
     let fixture = scene();
     fixture.mark_all("single");
+    expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
+    fixture.request_review("single");
     expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
 }
 

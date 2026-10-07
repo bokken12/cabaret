@@ -13,7 +13,7 @@ use cabaret_transaction::{
 };
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
-    RepoPath, Result, RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    RepoPath, Result, Reviewing, RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
         Allow, ArchivedParent, ArchivedParents, BaseMoves, Conflicted, Empty, ImpermanentParents, NoCommonAncestor,
         NonOwner, OpenChildren, Ownerless, ParentConflicted, ParentUnreviewed, Parentless, Permanent, RedundantParent,
@@ -982,14 +982,25 @@ impl Cabaret {
             Ok(())
         })
     }
+
+    pub fn set_reviewing(&self, change_id: &ChangeIdRef, reviewing: Reviewing, allow: &Allow) -> Result<()> {
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            if metadata.reviewing == reviewing {
+                return Ok(());
+            }
+            allow.check(Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner)))?;
+            metadata.reviewing = reviewing;
+            Ok(())
+        })
+    }
 }
 
 impl Cabaret {
     /// The changes `viewer` owns that are still open, since owners are to push those forward;
-    /// among them, those with files `viewer` has left to review, since owners are to review every
-    /// file of their changes (see `Branch::review_files`); and every change checked out in this
-    /// device's workspaces, archived or not, since those are still active here; each with its
-    /// ancestors as context.
+    /// among them, those up for review with files `viewer` has left to review, since owners are to
+    /// review every file of their changes (see `Branch::review_files`); and every change checked
+    /// out in this device's workspaces, archived or not, since those are still active here; each
+    /// with its ancestors as context.
     pub fn home(&self, viewer: &Identity) -> Result<Home> {
         self.store.query(|ctx| {
             let trunk = ctx.default_branch()?;
@@ -1005,6 +1016,9 @@ impl Cabaret {
             let mut to_review = BTreeSet::new();
             for id in &owned {
                 let metadata = changes[id];
+                if metadata.reviewing == Reviewing::None {
+                    continue;
+                }
                 let review = metadata.review.get(viewer).cloned().unwrap_or_default();
                 if !ctx.branch(id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
                     to_review.insert(id.clone());
@@ -1071,7 +1085,11 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if branch.changed_files(parents.as_ref(), &[])?.is_empty() {
         return Ok(Some(NextStep::AddCode));
     }
-    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, parents.as_ref())?) {
+    let unreviewed = unreviewed(metadata, branch, parents.as_ref())?;
+    if metadata.reviewing == Reviewing::None && !unreviewed.is_empty() {
+        return Ok(Some(NextStep::RequestReview));
+    }
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed) {
         return Ok(Some(NextStep::Review { reviewers }));
     }
     Ok(Some(match parents.iter().collect::<Vec<_>>().as_slice() {

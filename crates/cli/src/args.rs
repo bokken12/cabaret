@@ -3,13 +3,19 @@
 
 use std::ffi::OsStr;
 
-use cabaret_lib::{Cabaret, Result, RevisionId, safeguard::SafeguardKind};
+use cabaret_lib::{Cabaret, Result, Reviewing, RevisionId, safeguard::SafeguardKind};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
 pub fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
     PossibleValuesParser::new(SafeguardKind::ALL.iter().map(|kind| kind.name())).map(|name| {
         *SafeguardKind::ALL.iter().find(|kind| kind.name() == name).expect("only safeguard kinds are possible")
+    })
+}
+
+pub fn reviewing() -> impl TypedValueParser<Value = Reviewing> {
+    PossibleValuesParser::new(Reviewing::ALL.iter().map(|reviewing| reviewing.name())).map(|name| {
+        *Reviewing::ALL.iter().find(|reviewing| reviewing.name() == name).expect("only reviewing states are possible")
     })
 }
 

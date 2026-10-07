@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath};
+use crate::{Reviewing, RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath};
 
 // TODO-someday(joel): move log to its own crate?
 // TODO-someday(joel): allow format evolution. protos? versioned?
@@ -18,6 +18,7 @@ pub enum LogAction {
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },
     SetPermanent { permanent: bool },
+    SetReviewing { reviewing: Reviewing },
     SetTitle { title: Option<String> },
 }
 

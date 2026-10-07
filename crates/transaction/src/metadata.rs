@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TimestampS, TreeId,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, Reviewing, RevisionId, TimestampS, TreeId,
     log::{self, LogAction},
 };
 use gix::{
@@ -138,6 +138,7 @@ pub struct Metadata<'ctx> {
     pub description: Option<String>,
     pub archived: bool,
     pub permanent: bool,
+    pub reviewing: Reviewing,
     pub owners: BTreeSet<Identity>,
     pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
@@ -154,6 +155,7 @@ impl<'ctx> Metadata<'ctx> {
             description: None,
             archived: false,
             permanent: false,
+            reviewing: Reviewing::None,
             owners: BTreeSet::new(),
             declared_parents: BTreeSet::new(),
             review: BTreeMap::new(),
@@ -239,6 +241,7 @@ impl<'ctx> Metadata<'ctx> {
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
+            LogAction::SetReviewing { reviewing } => self.reviewing = *reviewing,
             LogAction::SetTitle { title } => self.title.clone_from(title),
         }
     }
@@ -263,6 +266,9 @@ impl<'ctx> Metadata<'ctx> {
         }
         if self.permanent != before.permanent {
             actions.push(LogAction::SetPermanent { permanent: self.permanent });
+        }
+        if self.reviewing != before.reviewing {
+            actions.push(LogAction::SetReviewing { reviewing: self.reviewing });
         }
         if self.title != before.title {
             actions.push(LogAction::SetTitle { title: self.title.clone() });
