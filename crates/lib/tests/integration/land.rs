@@ -21,6 +21,7 @@ fn diverged() -> Fixture {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
     fixture.mark_all("child");
+    fixture.endorse("child");
     fixture.commit("main", &[("main.txt", "main\n")]);
     fixture
 }
@@ -51,6 +52,7 @@ fn change_merged_into_parent_and_archived() {
         child
           parents main
           owners alice@example.com
+          endorsers alice@example.com
           archived
           title child
           base child
@@ -73,6 +75,7 @@ fn parent_that_has_not_moved_fast_forwards() {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
     fixture.mark_all("child");
+    fixture.endorse("child");
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), fixture.tip("child"));
 }
@@ -102,6 +105,7 @@ fn conflicting() -> Fixture {
     fixture.commit("mid", &[("greeting.txt", "hey\n")]);
     fixture.mark_all("mid");
     fixture.mark_all("child");
+    fixture.endorse("child");
     fixture
 }
 
@@ -131,6 +135,7 @@ fn empty_refuses_unless_allowed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("empty", "main", &alice());
+    fixture.endorse("empty");
     expect!["refused: it adds nothing to main"].assert_eq(&land(&fixture, "empty"));
     expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", &Allow::from_iter([SafeguardKind::Empty])));
     assert!(fixture.snapshot("empty").archived);
@@ -186,16 +191,38 @@ fn unreviewed_refuses_unless_allowed() {
 }
 
 #[test]
+fn unendorsed_refuses_unless_allowed() {
+    let fixture = diverged();
+    fixture.cabaret.unendorse(&id("child")).unwrap();
+    let tip = fixture.tip("main");
+    expect!["refused: alice@example.com has not endorsed it"].assert_eq(&land(&fixture, "child"));
+    assert_eq!(fixture.tip("main"), tip);
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        &Allow::from_iter([SafeguardKind::Unendorsed]),
+    ));
+}
+
+#[test]
+fn endorsement_outlasts_later_commits() {
+    let fixture = diverged();
+    fixture.commit("child", &[("more.txt", "more\n")]);
+    fixture.mark_all("child");
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
+}
+
+#[test]
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review; bob@example.com has not endorsed it"].assert_eq(&land(&fixture, "child"));
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has not endorsed it"].assert_eq(&land_allowing(
         &fixture,
         "child",
         &Allow::from_iter([SafeguardKind::Unreviewed]),
     ));
-    expect!["landed into main"].assert_eq(&land_allowing(
+    expect!["refused: bob@example.com has not endorsed it"].assert_eq(&land_allowing(
         &fixture,
         "child",
         &Allow::from_iter([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
@@ -214,8 +241,6 @@ fn errors_come_before_safeguards() {
 fn safeguards_foretell_refusal() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
-    expect![
-        "you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"
-    ]
-    .assert_eq(&shown(fixture.cabaret.land_safeguards(&id("child")).unwrap()));
+    expect!["you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review; bob@example.com has not endorsed it"]
+        .assert_eq(&shown(fixture.cabaret.land_safeguards(&id("child")).unwrap()));
 }

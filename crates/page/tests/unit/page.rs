@@ -22,6 +22,7 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         permanent: false,
         reviewing: Reviewing::None,
         owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
+        endorsers: BTreeSet::new(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),
         declared_parents: BTreeSet::new(),
         review: BTreeMap::new(),
@@ -108,6 +109,7 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
         [Label|Id:] [ChangeId|add-parser]
         [Label|Status:] open
         [Label|Owners:] alice@example.com, bob@example.com
+        [Label|Endorsed by:] [Muted|(none)]
         [Label|Reviewing:] none
         [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
@@ -128,6 +130,7 @@ fn a_show_page_is_headed_by_its_title_and_points_to_parents_by_id() {
         Id: add-parser
         Status: open
         Owners: alice@example.com, bob@example.com
+        Endorsed by: (none)
         Reviewing: none
         Parents: lexer, tokens
         Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -158,6 +161,7 @@ fn a_bare_show_page_marks_what_is_missing() {
         [Label|Id:] [ChangeId|bare]
         [Label|Status:] open
         [Label|Owners:] [Muted|(none)]
+        [Label|Endorsed by:] [Muted|(none)]
         [Label|Reviewing:] none
         [Label|Parents:] [Muted|(none)]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]

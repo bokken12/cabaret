@@ -16,7 +16,7 @@ use cabaret_types::{
     safeguard::{
         Allow, ArchivedParent, ArchivedParents, BaseMoves, Conflicted, Empty, ImpermanentParents, NoCommonAncestor,
         NonOwner, OpenChildren, Ownerless, ParentConflicted, ParentUnreviewed, Parentless, Permanent, RedundantParent,
-        RemovesOthers, Safeguard, SafeguardKind, Uncommitted, Unreviewed,
+        RemovesOthers, Safeguard, SafeguardKind, Uncommitted, Unendorsed, Unreviewed,
     },
 };
 use gix::{bstr::ByteSlice, protocol::handshake::Ref, remote::Direction};
@@ -912,6 +912,29 @@ impl Cabaret {
         })
     }
 
+    /// Record that this repository's identity approves `change_id` as a whole, which holds however
+    /// the change evolves after, unlike review. Endorsing with files left to review is refused.
+    pub fn endorse(&self, change_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
+        self.store.update_metadata(change_id, |ctx, metadata| {
+            let you = ctx.identity()?;
+            if !metadata.endorsers.insert(you.clone()) {
+                return Ok(());
+            }
+            let review = metadata.review.get(&you).cloned().unwrap_or_default();
+            if !ctx.branch(change_id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
+                allow.check(vec![Safeguard::Unreviewed(Unreviewed { reviewers: NEBTreeSet::new(you) })])?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn unendorse(&self, change_id: &ChangeIdRef) -> Result<()> {
+        self.store.update_metadata(change_id, |ctx, metadata| {
+            metadata.endorsers.remove(&ctx.identity()?);
+            Ok(())
+        })
+    }
+
     pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
         self.store.update_metadata(change_id, |_ctx, metadata| {
             metadata.title = title;
@@ -1065,6 +1088,9 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed) {
         return Ok(Some(NextStep::Review { reviewers }));
     }
+    if let Some(owners) = NEBTreeSet::try_from_set(unendorsed(metadata)) {
+        return Ok(Some(NextStep::Endorse { owners }));
+    }
     Ok(Some(match parents.iter().collect::<Vec<_>>().as_slice() {
         [into] => NextStep::Land { into: (*into).clone() },
         _ => NextStep::LandParents { parents },
@@ -1085,6 +1111,11 @@ fn unreviewed(
         }
     }
     Ok(reviewers)
+}
+
+/// Owners who have not endorsed the change, since every owner is to approve it before it lands.
+fn unendorsed(metadata: &Metadata<'_>) -> BTreeSet<Identity> {
+    metadata.owners.difference(&metadata.endorsers).cloned().collect()
 }
 
 fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguard>> {
@@ -1130,6 +1161,9 @@ fn land_safeguards(
     let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner));
     if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
         safeguards.push(Safeguard::Unreviewed(Unreviewed { reviewers }));
+    }
+    if let Some(owners) = NEBTreeSet::try_from_set(unendorsed(metadata)) {
+        safeguards.push(Safeguard::Unendorsed(Unendorsed { owners }));
     }
     let parent = ctx.metadata(parent_id)?;
     let grandparents = parent.parents()?;

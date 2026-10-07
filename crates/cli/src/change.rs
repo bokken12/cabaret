@@ -109,6 +109,16 @@ pub enum ChangeCommand {
         #[arg(required = true, value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
+    /// Approve the change as a whole, as every owner must before it lands. Unlike review, this
+    /// holds however the change evolves after.
+    Endorse {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(long)]
+        undo: bool,
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
+    },
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -246,6 +256,9 @@ impl ChangeCommand {
                 cabaret.discard(&change, &pathspecs)?;
                 println!("discarded from {change}");
             }
+            ChangeCommand::Endorse { change, undo, allow } => {
+                endorse(cabaret, &or_current(change)?, undo, &Allow::from_iter(allow))?;
+            }
             ChangeCommand::Land { change, allow } => {
                 let change = or_current(change)?;
                 let parent = cabaret
@@ -346,6 +359,20 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
                 let (before, after) = (version(*before, file.source())?, version(*after, file.path())?);
                 out.write_all(&unified(file, before.as_ref(), after.as_ref()))?;
             }
+        }
+    }
+    Ok(())
+}
+
+fn endorse(cabaret: &Cabaret, change: &ChangeIdRef, undo: bool, allow: &Allow) -> Result<()> {
+    match undo {
+        false => {
+            cabaret.endorse(change, allow).map_err(|error| refusal(&format!("endorse {change}"), error))?;
+            println!("endorsed {change}");
+        }
+        true => {
+            cabaret.unendorse(change)?;
+            println!("withdrew endorsement of {change}");
         }
     }
     Ok(())

@@ -186,6 +186,9 @@ impl Fixture {
         self.cabaret.mark(&id(change), &pathspecs, None).unwrap();
     }
 
+    /// Endorse `change` as the fixture's identity.
+    pub fn endorse(&self, change: &str) { self.cabaret.endorse(&id(change), &Allow::default()).unwrap(); }
+
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
     pub fn commit(&self, change: &str, files: Files) -> RevisionId {
         let tip = self.tip(change);
@@ -426,6 +429,10 @@ impl Fixture {
         }
         if !snapshot.owners.is_empty() {
             writeln!(out, "  owners {}", words(snapshot.owners.iter().map(ToString::to_string).collect())).unwrap();
+        }
+        if !snapshot.endorsers.is_empty() {
+            writeln!(out, "  endorsers {}", words(snapshot.endorsers.iter().map(ToString::to_string).collect()))
+                .unwrap();
         }
         if snapshot.archived {
             writeln!(out, "  archived").unwrap();

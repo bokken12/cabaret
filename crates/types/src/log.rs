@@ -12,6 +12,7 @@ use crate::{Reviewing, RevisionId, change_id::ChangeId, error::Result, identity:
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
+    Endorse { endorser: Identity },
     Forget { reviewer: Identity, file: RepoPath },
     Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
@@ -20,6 +21,7 @@ pub enum LogAction {
     SetPermanent { permanent: bool },
     SetReviewing { reviewing: Reviewing },
     SetTitle { title: Option<String> },
+    Unendorse { endorser: Identity },
 }
 
 impl LogAction {

@@ -33,6 +33,10 @@ pub enum NextStep {
     Review {
         reviewers: NEBTreeSet<Identity>,
     },
+    /// Owners yet to endorse it, since every owner is to approve a change before it lands.
+    Endorse {
+        owners: NEBTreeSet<Identity>,
+    },
     /// A change lands into one parent, so several must first coalesce by landing.
     LandParents {
         parents: NEBTreeSet<ChangeId>,
@@ -206,6 +210,7 @@ impl Page {
         lines.push(list("Id:", std::iter::once(Segment::tagged(id.to_string(), Tag::ChangeId))));
         lines.push(list("Status:", std::iter::once(Segment::plain(status))));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
+        lines.push(list("Endorsed by:", change.endorsers.iter().map(|endorser| Segment::plain(endorser.to_string()))));
         lines.push(list("Reviewing:", std::iter::once(Segment::plain(change.reviewing.to_string()))));
         lines.push(list(
             "Parents:",
@@ -356,6 +361,9 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         NextStep::RequestReview => (None, "request review".to_owned(), BTreeSet::new()),
         NextStep::Review { reviewers } => {
             (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
+        }
+        NextStep::Endorse { owners } => {
+            (owners.contains(viewer).then_some("!e"), format!("endorsement by {}", joined(owners)), BTreeSet::new())
         }
         NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone().into()),
         NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),

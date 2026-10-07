@@ -20,6 +20,7 @@ pub struct ChangeSnapshot {
     pub permanent: bool,
     pub reviewing: Reviewing,
     pub owners: BTreeSet<Identity>,
+    pub endorsers: BTreeSet<Identity>,
     /// What the change targets; see `Metadata::parents`.
     pub parents: BTreeSet<ChangeId>,
     /// What its log declares, which is what parent edits act on.

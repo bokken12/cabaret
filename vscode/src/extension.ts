@@ -1666,6 +1666,20 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step>
   return { report: `${done} ${change}`, complete: true };
 }
 
+/** Endorse the change, asking before endorsing despite safeguards, or withdraw an endorsement. */
+async function toggleEndorsed(cabaret: Cabaret, change: ChangeId): Promise<Step> {
+  const [{ endorsers }, you] = await Promise.all([cabaret.change(change), cabaret.identity()]);
+  if (endorsers.has(you)) {
+    await cabaret.unendorse(change);
+    return { report: `withdrew endorsement of ${change}`, complete: true };
+  }
+  const endorsing = (allow: SafeguardKind[]) => cabaret.endorse(change, allow);
+  if ((await despite(`Endorse ${change}`, "Endorse Anyway", [], endorsing)) === undefined) {
+    return { report: `did not endorse ${change}`, complete: false };
+  }
+  return { report: `endorsed ${change}`, complete: true };
+}
+
 /**
  * Toggle whether each change is archived. Archiving leaves a change's dedicated workspace nothing
  * to do, so the user is first offered deleting those workspaces, as when landing. Children are
@@ -1923,6 +1937,7 @@ export function activate(context: vscode.ExtensionContext) {
     plannedSequence("cabaret.land", provider, planLand),
     plannedSequence("cabaret.rebase", provider, planRebase),
     plannedSequence("cabaret.toggleArchived", provider, planToggleArchived),
+    sequencedAction("cabaret.toggleEndorsed", provider, toggleEndorsed),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),

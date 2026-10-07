@@ -63,8 +63,18 @@ fn unreviewed_change_requests_review_until_up_for_it() {
 fn reviewed_change_lands_whether_or_not_up_for_review() {
     let fixture = scene();
     fixture.mark_all("single");
+    fixture.endorse("single");
     expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
     fixture.request_review("single");
+    expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
+}
+
+#[test]
+fn reviewed_change_awaits_endorsement() {
+    let fixture = scene();
+    fixture.mark_all("single");
+    expect!["[!e] endorsement by alice@example.com"].assert_eq(&next_step(&fixture, "single"));
+    fixture.endorse("single");
     expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
 }
 
@@ -75,6 +85,7 @@ fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     let allow = Allow::from_iter([SafeguardKind::RemovesOthers]);
     fixture.cabaret.remove_owner(&id("fork-join"), &carol(), &allow).unwrap();
     fixture.mark_all("fork-join");
+    fixture.endorse("fork-join");
     expect!["[^] land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
 }
 

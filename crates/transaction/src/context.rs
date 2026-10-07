@@ -154,6 +154,7 @@ impl<'ctx> TransactionContext<'ctx> {
             permanent: metadata.permanent,
             reviewing: metadata.reviewing,
             owners: metadata.owners.clone(),
+            endorsers: metadata.endorsers.clone(),
             parents,
             declared_parents: metadata.declared_parents.clone(),
             review: metadata.review.clone(),

@@ -140,6 +140,8 @@ pub struct Metadata<'ctx> {
     pub permanent: bool,
     pub reviewing: Reviewing,
     pub owners: BTreeSet<Identity>,
+    /// Who has approved the change as a whole. Unlike review, this holds however the change evolves.
+    pub endorsers: BTreeSet<Identity>,
     pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
 }
@@ -157,6 +159,7 @@ impl<'ctx> Metadata<'ctx> {
             permanent: false,
             reviewing: Reviewing::None,
             owners: BTreeSet::new(),
+            endorsers: BTreeSet::new(),
             declared_parents: BTreeSet::new(),
             review: BTreeMap::new(),
         }
@@ -227,6 +230,9 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::AddParent { parent } => {
                 self.declared_parents.insert(parent.clone());
             }
+            LogAction::Endorse { endorser } => {
+                self.endorsers.insert(endorser.clone());
+            }
             LogAction::Forget { reviewer, file } => {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
@@ -243,6 +249,9 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
             LogAction::SetReviewing { reviewing } => self.reviewing = *reviewing,
             LogAction::SetTitle { title } => self.title.clone_from(title),
+            LogAction::Unendorse { endorser } => {
+                self.endorsers.remove(endorser);
+            }
         }
     }
 
@@ -254,6 +263,12 @@ impl<'ctx> Metadata<'ctx> {
         }
         for owner in self.owners.difference(&before.owners) {
             actions.push(LogAction::AddOwner { owner: owner.clone() });
+        }
+        for endorser in before.endorsers.difference(&self.endorsers) {
+            actions.push(LogAction::Unendorse { endorser: endorser.clone() });
+        }
+        for endorser in self.endorsers.difference(&before.endorsers) {
+            actions.push(LogAction::Endorse { endorser: endorser.clone() });
         }
         for parent in before.declared_parents.difference(&self.declared_parents) {
             actions.push(LogAction::RemoveParent { parent: parent.clone() });

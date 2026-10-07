@@ -149,6 +149,10 @@
         "title": "Cabaret: Toggle Archived"
       },
       {
+        "command": "cabaret.toggleEndorsed",
+        "title": "Cabaret: Toggle Endorsed"
+      },
+      {
         "command": "cabaret.createWorkspace",
         "title": "Cabaret: Create Workspace"
       },
@@ -317,6 +321,16 @@
       {
         "command": "cabaret.toggleArchived",
         "key": "shift+1 a",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
+      },
+      {
+        "command": "cabaret.toggleEndorsed",
+        "key": "shift+1 e",
+        "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.toggleEndorsed",
+        "key": "shift+1 e",
         "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
       },
       {

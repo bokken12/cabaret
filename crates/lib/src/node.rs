@@ -143,6 +143,10 @@ impl CabaretJs {
     #[napi]
     pub async fn current_change(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::current_change).await }
 
+    /// Git's user.email, as which this acts.
+    #[napi]
+    pub async fn identity(&self) -> napi::Result<Identity> { self.blocking(Cabaret::identity).await }
+
     #[napi]
     pub async fn trunk(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::trunk).await }
 
@@ -377,6 +381,17 @@ impl CabaretJs {
     pub async fn mark(&self, change: ChangeId, files: Vec<RepoPath>, head: Option<RevisionId>) -> napi::Result<()> {
         let pathspecs: Vec<Pathspec> = files.iter().map(Pathspec::literal).collect();
         self.blocking(move |cabaret| cabaret.mark(&change, &pathspecs, head).map(drop)).await
+    }
+
+    #[napi]
+    pub async fn endorse(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self.blocking(move |cabaret| outcome(cabaret.endorse(&change, &Allow::from_iter(allow)))).await?;
+        Ok(Attempt::from(attempt))
+    }
+
+    #[napi]
+    pub async fn unendorse(&self, change: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.unendorse(&change)).await
     }
 
     #[napi]

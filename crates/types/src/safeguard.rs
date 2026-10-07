@@ -33,6 +33,7 @@ pub enum SafeguardKind {
     RedundantParent,
     RemovesOthers,
     Uncommitted,
+    Unendorsed,
     Unreviewed,
 }
 
@@ -55,6 +56,7 @@ impl SafeguardKind {
         Self::RedundantParent,
         Self::RemovesOthers,
         Self::Uncommitted,
+        Self::Unendorsed,
         Self::Unreviewed,
     ];
 
@@ -77,6 +79,7 @@ impl SafeguardKind {
             Self::RedundantParent => "redundant-parent",
             Self::RemovesOthers => "removes-others",
             Self::Uncommitted => "uncommitted",
+            Self::Unendorsed => "unendorsed",
             Self::Unreviewed => "unreviewed",
         }
     }
@@ -106,6 +109,7 @@ pub enum Safeguard {
     RedundantParent(RedundantParent),
     RemovesOthers(RemovesOthers),
     Uncommitted(Uncommitted),
+    Unendorsed(Unendorsed),
     Unreviewed(Unreviewed),
 }
 
@@ -129,6 +133,7 @@ impl Safeguard {
             Self::RedundantParent(_) => SafeguardKind::RedundantParent,
             Self::RemovesOthers(_) => SafeguardKind::RemovesOthers,
             Self::Uncommitted(_) => SafeguardKind::Uncommitted,
+            Self::Unendorsed(_) => SafeguardKind::Unendorsed,
             Self::Unreviewed(_) => SafeguardKind::Unreviewed,
         }
     }
@@ -154,6 +159,7 @@ impl fmt::Display for Safeguard {
             Self::RedundantParent(particulars) => particulars.fmt(f),
             Self::RemovesOthers(particulars) => particulars.fmt(f),
             Self::Uncommitted(particulars) => particulars.fmt(f),
+            Self::Unendorsed(particulars) => particulars.fmt(f),
             Self::Unreviewed(particulars) => particulars.fmt(f),
         }
     }
@@ -380,6 +386,19 @@ pub struct Uncommitted {
 impl fmt::Display for Uncommitted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "workspace {} has uncommitted changes", self.workspace)
+    }
+}
+
+/// Owners have not endorsed the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unendorsed {
+    pub owners: NEBTreeSet<Identity>,
+}
+
+impl fmt::Display for Unendorsed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let verb = if self.owners.len().get() == 1 { "has" } else { "have" };
+        write!(f, "{} {verb} not endorsed it", joined(&self.owners))
     }
 }
 
