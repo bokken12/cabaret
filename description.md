@@ -1,0 +1,1 @@
+Witness `.` pathspecs matching nothing in `changed_files` and `mark`, though they should match every file.
