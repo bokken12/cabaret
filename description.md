@@ -1,0 +1,1 @@
+Make `.` pathspecs match every file, and list the files `mark` marks. gix takes the `.` text of a nil pattern for a prefix every path must share, so `pathspec_search` searches only the exclusions when one is present.
