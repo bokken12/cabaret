@@ -276,7 +276,10 @@ impl ChangeCommand {
             ChangeCommand::Mark { change, tip, pathspecs } => {
                 let change = or_current(change)?;
                 let files = cabaret.mark(&change, &pathspecs, tip)?;
-                println!("marked {} of {change}'s files reviewed", files.len());
+                println!("marked {} of {change}'s files reviewed:", files.len());
+                for file in &files {
+                    println!("  {file}");
+                }
             }
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;

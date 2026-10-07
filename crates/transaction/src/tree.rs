@@ -34,9 +34,19 @@ pub(crate) fn changed_files(
 
 /// A search for the paths `pathspecs` match, all when empty.
 pub fn pathspec_search<'repo>(repo: &'repo Repository, pathspecs: &[Pathspec]) -> Result<gix::Pathspec<'repo>> {
-    Ok(gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
-        Err("attribute pathspecs are not supported".into())
-    })?)
+    let search = |pathspecs: Vec<&Pathspec>| {
+        gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
+            Err("attribute pathspecs are not supported".into())
+        })
+    };
+    let all = search(pathspecs.iter().collect())?;
+    // gix takes the `.` text of a pattern matching every path for a prefix every path must share,
+    // so it matches none; the exclusions alone match the same paths.
+    // TODO-someday(joel): drop once gix-pathspec's `common_prefix_len` skips nil patterns.
+    if all.search().patterns().any(|pattern| pattern.is_nil() && !pattern.is_excluded()) {
+        return Ok(search(pathspecs.iter().filter(|spec| spec.0.is_excluded()).collect())?);
+    }
+    Ok(all)
 }
 
 /// Options for merging trees, with the conflict style forced rather than read from config so
