@@ -112,8 +112,8 @@ fn files_page_counts_lines_of_each_diff() {
 
         ○ file.txt +2 -1
         ○ image.png binary
-        ○ new.txt +1 -0
-        ○ old.txt +0 -1
+        ○ new.txt +1
+        ○ old.txt -1
     "#]]
     .assert_eq(&page.to_string());
 }
