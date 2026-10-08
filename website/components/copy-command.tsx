@@ -43,22 +43,24 @@ export function CopyCommand({
           className="copy-button"
           aria-label={status === "copied" ? "Command copied" : "Copy command"}
         >
-          {status === "copied" ? (
-            <span aria-hidden="true">✓</span>
-          ) : (
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              aria-hidden="true"
-            >
-              <rect x="8" y="8" width="12" height="12" rx="1" />
-              <path d="M16 8V4H4v12h4" />
-            </svg>
-          )}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            {status === "copied" ? (
+              <path d="m5 12 4 4L19 6" strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+              <>
+                <rect x="8" y="8" width="12" height="12" rx="1" />
+                <path d="M16 8V4H4v12h4" />
+              </>
+            )}
+          </svg>
           <span>{status === "copied" ? "Copied" : "Copy"}</span>
         </button>
       </div>

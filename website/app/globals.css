@@ -111,11 +111,13 @@ a:hover {
 }
 .site-header nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 32px;
   font-size: 0.875rem;
 }
 .site-header nav a {
   text-decoration: none;
+  white-space: nowrap;
 }
 .site-header nav a:hover,
 .site-header nav a[aria-current] {
@@ -487,8 +489,11 @@ a:hover {
     width: calc(100% - 40px);
   }
   .site-header {
-    height: 80px;
-    gap: 15px;
+    height: auto;
+    min-height: 80px;
+    padding-block: 12px;
+    flex-wrap: wrap;
+    gap: 8px 15px;
   }
   .wordmark img {
     width: 140px;
