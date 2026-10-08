@@ -1,0 +1,20 @@
+# Dependencies and generated output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
+
+# Local environment and deployment state
+.env*
+!.env.example
+.vercel/
+
+# Local logs and editor/OS files
+*.log
+.DS_Store
+
+# Unpublished design references
+inspo/
