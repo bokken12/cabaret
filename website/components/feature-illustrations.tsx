@@ -83,7 +83,7 @@ export function GitIllustration() {
   return (
     <Illustration id="shared-git" title="Two workflows, one Git repository"
       description="You review the add-search change in Cabaret while a teammate reviews the same change in GitHub. Both interfaces connect to the same Git repository."
-      caption="Your workflow. Their workflow. Same repository.">
+      >
       <text x="30" y="32" className="fi-label">YOU, IN CABARET</text>
       <text x="434" y="32" className="fi-label">YOUR TEAMMATE, IN GITHUB</text>
       <rect x="36" y="60" width="256" height="178" className="fi-shadow" />
@@ -126,15 +126,12 @@ export function EditorIllustration() {
   return (
     <Illustration id="editor-review" title="Fix and comment right in your editor"
       description="A simplified editor shows a greeting typo corrected from Helo to Hello, followed by an inline TODO asking to handle an empty name. Both actions happen in the same file."
-      caption="A comment is just code.">
+    >
       <rect x="38" y="35" width="642" height="277" className="fi-blue-fill" />
       <rect x="30" y="27" width="642" height="277" className="fi-paper" />
       <rect x="30" y="27" width="642" height="40" className="fi-blue-fill" />
-      <text x="48" y="53" className="fi-mono fi-cream">CABARET / your editor</text>
-      <text x="651" y="53" textAnchor="end" className="fi-label fi-cream">REVIEW → EDIT</text>
       <path d="M77 67 V273 M30 106 H672 M30 273 H672" className="fi-rule" />
       <text x="95" y="92" className="fi-mono">src/greeting.ts</text>
-      <text x="642" y="92" textAnchor="end" className="fi-label">WORKSPACE</text>
       <text x="47" y="136" className="fi-mono fi-muted">12</text>
       <text x="47" y="165" className="fi-mono fi-muted">13</text>
       <text x="47" y="197" className="fi-mono fi-muted">13</text>
@@ -149,7 +146,6 @@ export function EditorIllustration() {
       <text x="95" y="233" className="fi-editor-code fi-red">   // TODO: handle an empty name</text>
       <rect x="482" y="217" width="8" height="20" className="fi-red-fill" />
       <text x="95" y="259" className="fi-editor-code">&#125;</text>
-      <text x="652" y="293" textAnchor="end" className="fi-label">ONE FILE. SAME PLACE.</text>
       <g transform="rotate(-4 583 190)">
         <rect x="530" y="174" width="106" height="31" className="fi-stamp" />
         <text x="583" y="195" textAnchor="middle" className="fi-label fi-red">FIX IT HERE</text>

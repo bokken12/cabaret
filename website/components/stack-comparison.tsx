@@ -395,7 +395,7 @@ export function StackComparison() {
       <div className="stack-finish">
         <span className="stack-stamp">NO CRAZY REBASES</span>
         <p className="stack-takeaway">
-          By choosing as many parents as it really has and not pretending to have just one, a change lands when it's ready, without fussy rebases.
+          By letting your stack branch out like a tree instead of forcing it into a line, a change lands when it's ready, without fussy rebases.
         </p>
       </div>
     </div>

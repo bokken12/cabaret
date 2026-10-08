@@ -15,9 +15,6 @@ export default function Home() {
             CABARET.
           </h1>
           <div className="hero-under-title">
-            <span className="small-star" aria-hidden="true">
-              ✳
-            </span>
             <span className="rule" />
           </div>
           <div className="hero-content">
@@ -58,13 +55,12 @@ export default function Home() {
             </article>
             <article className="stack-feature">
               <span className="feature-number">II.</span>
-              <h3>Stacks, stacks, stacks, now with multiple parents.</h3>
+              <h3>Stacks, stacks, stacks, now branching like trees.</h3>
               <p>
                 Many developers "stack" their work, where each new change builds on the one before it, so they keep working without waiting for review, and then land the changes together.
-
               </p>
               <br/>
-              <p>However, stacking can create artificial dependencies.</p>
+              <p>Most stacking systems only handle stacks shaped like a line, where every change has exactly one change below it and one above it, but your work doesn't always happen that way, and sometimes, you want two changes to build on the same change.</p>
               <br/>
               <p>Suppose you're introducing a feature C that depends on A and B, who are perfectly independent changes.</p>
               <StackComparison />
