@@ -1,8 +1,15 @@
-```
-npm run dev
+Run from the repository root using the version of pnpm pinned in `package.json`:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dev:website
 ```
 
-then open localhost:3000
+Then open http://127.0.0.1:3000.
+
+Run `pnpm --filter @cabaret/website typecheck` to generate Next.js route types and check TypeScript. The root `pnpm check` command also includes this check.
+
+For deployment, install from the repository root with `pnpm install --frozen-lockfile`, run `pnpm build:website`, and publish `website/out/` as static files. The website uses the root pnpm lockfile; it does not need a separate install inside `website/`.
 
 ## favicon
 <img width="101" height="34" alt="image" src="https://github.com/user-attachments/assets/897aa1ce-3235-477c-a766-d7702d800cf4" />

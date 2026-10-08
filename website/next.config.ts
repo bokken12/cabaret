@@ -6,7 +6,6 @@ const config: NextConfig = {
   poweredByHeader: false,
   agentRules: false,
   devIndicators: false,
-  turbopack: { root: process.cwd() },
 };
 
 export default config;

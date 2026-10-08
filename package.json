@@ -6,11 +6,13 @@
     "cab": "cargo run -q -p cabaret-cli --",
     "test": "cargo test --workspace",
     "test:vscode": "pnpm build && pnpm --filter cabaret test:integration",
-    "check": "cargo check --workspace --all-features && pnpm --filter cabaret typecheck",
+    "check": "cargo check --workspace --all-features && pnpm --filter cabaret --filter @cabaret/website typecheck",
     "lint": "cargo clippy --workspace --all-targets --all-features && oxlint",
     "fmt": "cargo +nightly fmt && oxfmt",
     "fix": "cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets --all-features && oxlint --fix && oxfmt",
     "build": "pnpm --filter @cabaret/node build && pnpm --filter cabaret compile",
+    "dev:website": "pnpm --filter @cabaret/website dev",
+    "build:website": "pnpm --filter @cabaret/website build",
     "install:vscode": "pnpm build && pnpm --filter cabaret package && code --install-extension vscode/cabaret.vsix --force"
   },
   "devDependencies": {
