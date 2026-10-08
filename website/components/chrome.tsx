@@ -4,11 +4,7 @@ export function Header({ quickstart = false, docs = false }: { quickstart?: bool
   return (
     <header className="site-header wrap">
       <Link href="/" className="wordmark" aria-label="Cabaret home">
-        c
-        <span className="wordmark-star" aria-hidden="true">
-          ✳
-        </span>
-        baret
+        <img src="/cabaret-logo.svg" width="196" height="30" alt="" />
       </Link>
       <nav aria-label="Main navigation">
         <Link

@@ -98,19 +98,16 @@ a:hover {
   gap: 25px;
 }
 .wordmark {
-  font-family: var(--display);
-  font-weight: 900;
-  font-size: 2.5rem;
-  letter-spacing: -1.6px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  flex-shrink: 0;
   text-decoration: none;
-  line-height: 1;
 }
-.wordmark-star {
-  display: inline-block;
-  color: var(--red);
-  font-size: 1.95rem;
-  vertical-align: 2px;
-  line-height: 1;
+.wordmark img {
+  display: block;
+  width: 196px;
+  height: auto;
 }
 .site-header nav {
   display: flex;
@@ -492,6 +489,9 @@ a:hover {
   .site-header {
     height: 80px;
     gap: 15px;
+  }
+  .wordmark img {
+    width: 140px;
   }
   .site-header nav {
     gap: 24px;
