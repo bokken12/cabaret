@@ -21,13 +21,32 @@ export default async function DocumentationPage({ params }: { params: Promise<{ 
   const index = posts.findIndex((post) => post.slug === slug);
   if (index === -1) notFound();
   const post = posts[index];
-  return <><Header docs /><main id="main" className="wrap"><div className="guide-layout">
-    <DocsNavigation current={slug} />
-    <article className="docs-content"><h1><span className="docs-page-number">{post.number}.</span> {post.title}</h1><Markdown>{post.content}</Markdown>
-      <nav className="chapter-navigation" aria-label="Adjacent chapters">
-        {posts[index - 1] && <Link href={`/docs/${posts[index - 1].slug}/`}>← {posts[index - 1].number}. {posts[index - 1].title}</Link>}
-        {posts[index + 1] && <Link href={`/docs/${posts[index + 1].slug}/`}>{posts[index + 1].number}. {posts[index + 1].title} →</Link>}
-      </nav>
-    </article>
-  </div></main></>;
+  return (
+    <>
+      <Header docs />
+      <main id="main" className="wrap">
+        <div className="guide-layout">
+          <DocsNavigation current={slug} />
+          <article className="docs-content">
+            <h1>
+              <span className="docs-page-number">{post.number}.</span> {post.title}
+            </h1>
+            <Markdown>{post.content}</Markdown>
+            <nav className="chapter-navigation" aria-label="Adjacent chapters">
+              {posts[index - 1] && (
+                <Link href={`/docs/${posts[index - 1].slug}/`}>
+                  ← {posts[index - 1].number}. {posts[index - 1].title}
+                </Link>
+              )}
+              {posts[index + 1] && (
+                <Link href={`/docs/${posts[index + 1].slug}/`}>
+                  {posts[index + 1].number}. {posts[index + 1].title} →
+                </Link>
+              )}
+            </nav>
+          </article>
+        </div>
+      </main>
+    </>
+  );
 }

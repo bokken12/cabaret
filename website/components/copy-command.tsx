@@ -2,13 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export function CopyCommand({
-  command,
-  compact = false,
-}: {
-  command: string;
-  compact?: boolean;
-}) {
+export function CopyCommand({ command, compact = false }: { command: string; compact?: boolean }) {
   const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -64,10 +58,7 @@ export function CopyCommand({
           <span>{status === "copied" ? "Copied" : "Copy"}</span>
         </button>
       </div>
-      <span
-        role="status"
-        className={status === "error" ? "copy-error" : "sr-only"}
-      >
+      <span role="status" className={status === "error" ? "copy-error" : "sr-only"}>
         {status === "copied"
           ? "Command copied to clipboard."
           : status === "error"

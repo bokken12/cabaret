@@ -22,20 +22,12 @@ function Change({
   landed?: boolean;
 }) {
   return (
-    <g
-      transform={`translate(${x} ${y})`}
-      className={`graph-change graph-change-${id}${landed ? " graph-landed" : ""}`}
-    >
+    <g transform={`translate(${x} ${y})`} className={`graph-change graph-change-${id}${landed ? " graph-landed" : ""}`}>
       <title>{`${id} · ${names[id]}${landed ? ", landed" : status === "approved" ? ", approved" : status === "review" ? ", in review" : ""}`}</title>
       <rect x="5" y="5" width="128" height="50" className="graph-card-shadow" />
       <rect width="128" height="50" className="graph-card-face" />
       <path d="M14 18h62m-62 14h91" className="graph-code" />
-      <text
-        x={landed ? 64 : 0}
-        y={landed ? 64 : -9}
-        textAnchor={landed ? "middle" : "start"}
-        className="graph-letter"
-      >
+      <text x={landed ? 64 : 0} y={landed ? 64 : -9} textAnchor={landed ? "middle" : "start"} className="graph-letter">
         {id}
       </text>
       {status === "approved" && (
@@ -59,21 +51,9 @@ function Change({
 function Main({ children }: { children?: ReactNode }) {
   return (
     <g className="graph-main">
-      <rect
-        x="14"
-        y="308"
-        width="284"
-        height="80"
-        className="graph-main-shadow"
-      />
+      <rect x="14" y="308" width="284" height="80" className="graph-main-shadow" />
       <rect x="8" y="302" width="284" height="80" className="graph-main-face" />
-      <rect
-        x="8"
-        y="302"
-        width="284"
-        height="18"
-        className="graph-main-header"
-      />
+      <rect x="8" y="302" width="284" height="18" className="graph-main-header" />
       <text x="19" y="315" className="graph-main-label">
         main
       </text>
@@ -117,11 +97,7 @@ function Frame({
 }) {
   return (
     <figure className="stack-frame">
-      <svg
-        viewBox="0 0 300 394"
-        role="img"
-        aria-labelledby={`${id}-title ${id}-description`}
-      >
+      <svg viewBox="0 0 300 394" role="img" aria-labelledby={`${id}-title ${id}-description`}>
         <title id={`${id}-title`}>{caption}</title>
         <desc id={`${id}-description`}>{description}</desc>
         <defs>
@@ -134,12 +110,7 @@ function Frame({
             markerHeight="6"
             orient="auto-start-reverse"
           >
-            <path
-              d="M0 1 9 5 0 9"
-              fill="none"
-              stroke="var(--blue)"
-              strokeWidth="1.5"
-            />
+            <path d="M0 1 9 5 0 9" fill="none" stroke="var(--blue)" strokeWidth="1.5" />
           </marker>
           <marker
             id={`${id}-manual`}
@@ -150,12 +121,7 @@ function Frame({
             markerHeight="6"
             orient="auto"
           >
-            <path
-              d="M0 1 9 5 0 9"
-              fill="none"
-              stroke="var(--red)"
-              strokeWidth="1.5"
-            />
+            <path d="M0 1 9 5 0 9" fill="none" stroke="var(--red)" strokeWidth="1.5" />
           </marker>
         </defs>
         {children}
@@ -182,18 +148,8 @@ export function StackComparison() {
       <div className="stack-cast" aria-label="The three changes">
         {(["A", "B", "C"] as Cast[]).map((id) => (
           <div className="stack-cast-item" key={id}>
-            <svg
-              viewBox="0 0 48 32"
-              aria-hidden="true"
-              className={`cast-swatch cast-swatch-${id}`}
-            >
-              <rect
-                x="4"
-                y="4"
-                width="42"
-                height="26"
-                className="cast-shadow"
-              />
+            <svg viewBox="0 0 48 32" aria-hidden="true" className={`cast-swatch cast-swatch-${id}`}>
+              <rect x="4" y="4" width="42" height="26" className="cast-shadow" />
               <rect width="42" height="26" className="cast-face" />
               <path d="M8 9h17M8 17h26" />
             </svg>
@@ -203,9 +159,7 @@ export function StackComparison() {
           </div>
         ))}
       </div>
-      <p className="stack-scroll-hint">
-        Scroll sideways to follow both stories.
-      </p>
+      <p className="stack-scroll-hint">Scroll sideways to follow both stories.</p>
       <div
         className="stack-scroll"
         tabIndex={0}
@@ -213,10 +167,7 @@ export function StackComparison() {
         aria-label="Compare four single-stack steps with three Cabaret steps. Scroll horizontally on smaller screens."
       >
         <div className="stack-strips">
-          <section
-            className="comparison-strip"
-            aria-labelledby="single-stack-label"
-          >
+          <section className="comparison-strip" aria-labelledby="single-stack-label">
             <div className="strip-heading">
               <h4 id="single-stack-label">With old-age stacks</h4>
             </div>
@@ -264,17 +215,8 @@ export function StackComparison() {
                 <EmptySlot />
                 <Change id="C" x={86} y={20} />
                 <Change id="A" x={86} y={196} status="review" />
-                <Edge
-                  marker="single-3"
-                  d="M219 133C286 133 287 190 280 239S258 289 230 322"
-                  manual
-                />
-                <text
-                  className="graph-rebase-label"
-                  x="241"
-                  y="258"
-                  textAnchor="middle"
-                >
+                <Edge marker="single-3" d="M219 133C286 133 287 190 280 239S258 289 230 322" manual />
+                <text className="graph-rebase-label" x="241" y="258" textAnchor="middle">
                   rebase
                 </text>
               </Frame>
@@ -293,17 +235,8 @@ export function StackComparison() {
                 <EmptySlot />
                 <Change id="C" x={86} y={20} />
                 <Change id="A" x={86} y={196} status="review" />
-                <Edge
-                  marker="single-4"
-                  d="M218 45C282 54 282 172 219 217"
-                  manual
-                />
-                <text
-                  className="graph-rebase-label"
-                  x="253"
-                  y="126"
-                  textAnchor="middle"
-                >
+                <Edge marker="single-4" d="M218 45C282 54 282 172 219 217" manual />
+                <text className="graph-rebase-label" x="253" y="126" textAnchor="middle">
                   <tspan x="253">rebase</tspan>
                   <tspan x="253" dy="17">
                     again
@@ -312,10 +245,7 @@ export function StackComparison() {
               </Frame>
             </div>
           </section>
-          <section
-            className="comparison-strip cabaret-strip"
-            aria-labelledby="cabaret-stack-label"
-          >
+          <section className="comparison-strip cabaret-strip" aria-labelledby="cabaret-stack-label">
             <div className="strip-heading">
               <h4 id="cabaret-stack-label">With Cabaret</h4>
             </div>
@@ -334,12 +264,7 @@ export function StackComparison() {
                 <Change id="C" x={86} y={20} />
                 <Change id="A" x={14} y={196} />
                 <Change id="B" x={158} y={196} />
-                <text
-                  className="graph-parent-label"
-                  x="150"
-                  y="132"
-                  textAnchor="middle"
-                >
+                <text className="graph-parent-label" x="150" y="132" textAnchor="middle">
                   <tspan x="150">C has two</tspan>
                   <tspan x="150" dy="17">
                     parents, A and B.
@@ -360,12 +285,7 @@ export function StackComparison() {
                 <Edge marker="multi-2" d="M78 246V298" />
                 <Change id="C" x={86} y={20} />
                 <Change id="A" x={14} y={196} status="review" />
-                <text
-                  className="graph-parent-label"
-                  x="241"
-                  y="183"
-                  textAnchor="middle"
-                >
+                <text className="graph-parent-label" x="241" y="183" textAnchor="middle">
                   <tspan x="241">B is now</tspan>
                   <tspan x="241" dy="17">
                     landed in main
@@ -395,7 +315,8 @@ export function StackComparison() {
       <div className="stack-finish">
         <span className="stack-stamp">NO CRAZY REBASES</span>
         <p className="stack-takeaway">
-          By letting your stack branch out like a tree instead of forcing it into a line, a change lands when it's ready, without fussy rebases.
+          By letting your stack branch out like a tree instead of forcing it into a line, a change lands when it's
+          ready, without fussy rebases.
         </p>
       </div>
     </div>

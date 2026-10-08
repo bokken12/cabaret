@@ -3,11 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export function ChapterLink({ href, current, children }: {
-  href: string;
-  current: boolean;
-  children: ReactNode;
-}) {
+export function ChapterLink({ href, current, children }: { href: string; current: boolean; children: ReactNode }) {
   return (
     <Link
       href={href}

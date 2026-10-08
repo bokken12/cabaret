@@ -41,14 +41,8 @@ export default function Quickstart() {
                 ✳
               </span>
               <h2>That's your first review!</h2>
-              <p>
-                Explore what else Cabaret has to offer and the philosophy behind
-                how it approaches code review.
-              </p>
-              <Link
-                className="button button-blue"
-                href="/docs/"
-              >
+              <p>Explore what else Cabaret has to offer and the philosophy behind how it approaches code review.</p>
+              <Link className="button button-blue" href="/docs/">
                 Read the docs
               </Link>
               <Link href="/" className="back-home">

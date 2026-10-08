@@ -19,7 +19,9 @@
   outline: 2px solid var(--blue);
   outline-offset: 5px;
 }
-.fi-scroll-hint { display: none; }
+.fi-scroll-hint {
+  display: none;
+}
 .feature-illustration figcaption {
   margin: 12px 20px 0;
   font-size: 0.8125rem;
@@ -27,32 +29,97 @@
   text-align: center;
   color: var(--ink);
 }
-.fi-paper { fill: var(--paper); stroke: var(--blue); stroke-width: 1.5; }
-.fi-shadow { fill: var(--blue); opacity: 0.12; }
-.fi-wash { fill: var(--blue); fill-opacity: 0.07; }
-.fi-highlight { fill: var(--red); fill-opacity: 0.13; }
-.fi-line, .fi-rule, .fi-code, .fi-check, .fi-light-line {
+.fi-paper {
+  fill: var(--paper);
+  stroke: var(--blue);
+  stroke-width: 1.5;
+}
+.fi-shadow {
+  fill: var(--blue);
+  opacity: 0.12;
+}
+.fi-wash {
+  fill: var(--blue);
+  fill-opacity: 0.07;
+}
+.fi-highlight {
+  fill: var(--red);
+  fill-opacity: 0.13;
+}
+.fi-line,
+.fi-rule,
+.fi-code,
+.fi-check,
+.fi-light-line {
   fill: none;
   stroke: var(--blue);
   stroke-width: 1.5;
 }
-.fi-rule { stroke-opacity: 0.3; stroke-width: 1; }
-.fi-code { stroke-width: 4; }
-.fi-check { stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.fi-light-line { stroke: var(--paper); stroke-width: 2; }
-.fi-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.5px; }
-.fi-mono { font-family: var(--mono); font-size: 13px; }
-.fi-editor-code { font-family: var(--mono); font-size: 16px; }
-.fi-display { font-family: var(--display); font-size: 34px; }
-.fi-plus { font-family: var(--mono); font-size: 24px; fill: var(--red); }
-.fi-red { fill: var(--red); }
-.fi-code.fi-red { stroke: var(--red); fill: none; }
-.fi-cream { fill: var(--paper); }
-.fi-muted { fill: #686a75; }
-.fi-blue-fill { fill: var(--blue); }
-.fi-red-fill { fill: var(--red); }
-.fi-cream-fill { fill: var(--paper); }
-.fi-stamp { fill: var(--paper); stroke: var(--red); stroke-width: 1.5; }
+.fi-rule {
+  stroke-opacity: 0.3;
+  stroke-width: 1;
+}
+.fi-code {
+  stroke-width: 4;
+}
+.fi-check {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fi-light-line {
+  stroke: var(--paper);
+  stroke-width: 2;
+}
+.fi-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.fi-mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.fi-editor-code {
+  font-family: var(--mono);
+  font-size: 16px;
+}
+.fi-display {
+  font-family: var(--display);
+  font-size: 34px;
+}
+.fi-plus {
+  font-family: var(--mono);
+  font-size: 24px;
+  fill: var(--red);
+}
+.fi-red {
+  fill: var(--red);
+}
+.fi-code.fi-red {
+  stroke: var(--red);
+  fill: none;
+}
+.fi-cream {
+  fill: var(--paper);
+}
+.fi-muted {
+  fill: #686a75;
+}
+.fi-blue-fill {
+  fill: var(--blue);
+}
+.fi-red-fill {
+  fill: var(--red);
+}
+.fi-cream-fill {
+  fill: var(--paper);
+}
+.fi-stamp {
+  fill: var(--paper);
+  stroke: var(--red);
+  stroke-width: 1.5;
+}
 
 .features {
   grid-template-columns: 1fr;
@@ -67,26 +134,52 @@
   align-items: center;
   column-gap: 46px;
 }
-.features h3 { max-width: 370px; }
-.features p { max-width: 650px; }
-.feature-copy { min-width: 0; }
+.features h3 {
+  max-width: 370px;
+}
+.features p {
+  max-width: 650px;
+}
+.feature-copy {
+  min-width: 0;
+}
 
 @media (max-width: 1000px) {
   .features article.feature-with-illustration {
     grid-template-columns: 1fr;
     gap: 28px;
   }
-  .features h3 { max-width: 650px; }
-  .feature-illustration { width: 100%; max-width: 780px; margin-inline: auto; }
+  .features h3 {
+    max-width: 650px;
+  }
+  .feature-illustration {
+    width: 100%;
+    max-width: 780px;
+    margin-inline: auto;
+  }
 }
 @media (max-width: 780px) {
-  .features article, .features article.feature-with-illustration { padding: 28px 0 32px; }
-  .features .feature-number { position: static; display: block; margin-bottom: 12px; }
-  .feature-illustration figcaption { margin-inline: 0; font-size: 0.75rem; }
+  .features article,
+  .features article.feature-with-illustration {
+    padding: 28px 0 32px;
+  }
+  .features .feature-number {
+    position: static;
+    display: block;
+    margin-bottom: 12px;
+  }
+  .feature-illustration figcaption {
+    margin-inline: 0;
+    font-size: 0.75rem;
+  }
 }
 @media (max-width: 600px) {
-  .feature-illustration svg { min-width: 720px; }
-  .fi-scroll { padding-bottom: 14px; }
+  .feature-illustration svg {
+    min-width: 720px;
+  }
+  .fi-scroll {
+    padding-bottom: 14px;
+  }
   .fi-scroll-hint {
     display: block;
     margin-bottom: 16px;

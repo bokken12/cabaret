@@ -7,13 +7,12 @@ export function Header({ quickstart = false, docs = false }: { quickstart?: bool
         <img src="/cabaret-logo.svg" width="196" height="30" alt="" />
       </Link>
       <nav aria-label="Main navigation">
-        <Link
-          href="/quickstart/"
-          aria-current={quickstart ? "page" : undefined}
-        >
+        <Link href="/quickstart/" aria-current={quickstart ? "page" : undefined}>
           Quickstart
         </Link>
-        <Link href="/docs/" aria-current={docs ? "page" : undefined}>Docs</Link>
+        <Link href="/docs/" aria-current={docs ? "page" : undefined}>
+          Docs
+        </Link>
         <a href="https://github.com/bokken12/cabaret">
           GitHub <span aria-hidden="true">↗</span>
         </a>
