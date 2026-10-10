@@ -75,6 +75,29 @@ fn ancestor_of_parent_dropped() {
 }
 
 #[test]
+fn fix_replaces_archived_parent_with_grandparents() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    fixture.archive("parent");
+    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+}
+
+#[test]
+fn fix_drops_ancestor_of_other_parent() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    let allow = Allow::from_iter([SafeguardKind::RedundantParent]);
+    expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
+    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+}
+
+#[test]
 fn children_are_open_changes_targeting_it() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);

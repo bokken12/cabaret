@@ -54,6 +54,8 @@ pub enum ParentsCommand {
         #[arg(required = true, add = change_completer())]
         parents: Vec<ChangeId>,
     },
+    /// Replace archived parents with their own and drop those already an ancestor of another
+    Fix,
 }
 
 #[derive(Subcommand)]
@@ -316,6 +318,7 @@ impl ChangeCommand {
                             .remove_parent(change, &parent, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("remove {parent} as a parent of {change}"), error))?;
                     }
+                    ParentsCommand::Fix => cabaret.fix_parents(change)?,
                     ParentsCommand::Set { parents: _ } => {
                         return Err("change parents set is not implemented yet".into());
                     }

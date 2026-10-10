@@ -840,8 +840,6 @@ impl Cabaret {
         })
     }
 
-    // TODO(joel): some helper that aligns the parent set with the derived parent set?
-
     /// Declare `parent_id` a parent of `change_id`. A parent descending from the change is an
     /// error, since the graph would cycle.
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
@@ -867,6 +865,14 @@ impl Cabaret {
                 return Ok(());
             }
             allow.check(remove_parent_safeguards(&before, metadata, parent_id)?)?;
+            Ok(())
+        })
+    }
+
+    /// Declare the parents `change_id` targets, see `Metadata::parents`, as its parents.
+    pub fn fix_parents(&self, change_id: &ChangeIdRef) -> Result<()> {
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            metadata.declared_parents = metadata.parents()?;
             Ok(())
         })
     }
