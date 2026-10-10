@@ -407,9 +407,9 @@ impl Fixture {
         format!("{}\n{rest}", first.split_once(' ').unwrap().0)
     }
 
-    /// One change as text: its tip, the workspace holding it, the parents it targets and the declared ones when those
-    /// differ, its attributes, its base, and the files it changes against that base. The base is
-    /// named for the nearest ancestor whose tip it is, else it is a bare hash.
+    /// One change as text: its tip, the workspace holding it, its parents, its attributes, its base,
+    /// and the files it changes against that base. The base is named for the nearest ancestor
+    /// whose tip it is, else it is a bare hash.
     pub fn show(&self, change: &str) -> String {
         let words = |items: Vec<String>| items.join(" ");
         let snapshot = self.cabaret.snapshot(&id(change)).unwrap();
@@ -419,13 +419,6 @@ impl Fixture {
         }
         if !snapshot.parents.is_empty() {
             writeln!(out, "  parents {}", words(snapshot.parents.iter().map(ToString::to_string).collect())).unwrap();
-        }
-        if snapshot.declared_parents != snapshot.parents {
-            let declared = match snapshot.declared_parents.is_empty() {
-                true => "(none)".into(),
-                false => words(snapshot.declared_parents.iter().map(ToString::to_string).collect()),
-            };
-            writeln!(out, "  declared {declared}").unwrap();
         }
         if !snapshot.owners.is_empty() {
             writeln!(out, "  owners {}", words(snapshot.owners.iter().map(ToString::to_string).collect())).unwrap();
@@ -644,12 +637,11 @@ fn scene_state() {
           base 77cc9daf
           diff +behind-child.txt
         child-of-archived 22e75840
-          parents main
-          declared archived
+          parents archived
           owners alice@example.com
           title child-of-archived
-          base main
-          diff +archived.txt +child-of-archived.txt
+          base archived
+          diff +child-of-archived.txt
         co-owned 846dd910
           parents main
           owners alice@example.com bob@example.com

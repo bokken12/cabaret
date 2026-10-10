@@ -24,7 +24,6 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
         endorsers: BTreeSet::new(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),
-        declared_parents: BTreeSet::new(),
         review: BTreeMap::new(),
         workspace: None,
     }
@@ -413,6 +412,7 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     let identity = |id: &str| Identity(id.into());
     let steps = [
         NextStep::AddCode,
+        NextStep::FixParents { parents: nebts![change("lexer")] },
         NextStep::ResolveConflicts { files: nebts!["a.txt".parse().unwrap(), "b.txt".parse().unwrap()] },
         NextStep::ResolveParentConflicts { parents: nebts![change("lexer")] },
         NextStep::Rebase { parents: nebts![change("lexer"), change("tokens")] },
@@ -440,6 +440,7 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     expect![[r#"
         owned by viewer:
         [Accent|Next step:] [Accent|add code]
+        [Accent|Next step:] [Accent|fix parents, dropping] [ChangeId>change:lexer|lexer]
         [Accent|Next step:] [Accent|resolve conflicts in a.txt, b.txt]
         [Accent|Next step:] [Shortcut|[^]] [Accent|resolve conflicts in] [ChangeId>change:lexer|lexer]
         [Accent|Next step:] [Shortcut|[!r]] [Accent|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
@@ -449,6 +450,7 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
         [Accent|Next step:] [Shortcut|[!l]] [Accent|land into] [ChangeId>change:lexer|lexer]
         owned by another:
         [Accent|Next step:] [Accent|add code]
+        [Accent|Next step:] [Accent|fix parents, dropping] [ChangeId>change:lexer|lexer]
         [Accent|Next step:] [Accent|resolve conflicts in a.txt, b.txt]
         [Accent|Next step:] [Shortcut|[^]] [Accent|resolve conflicts in] [ChangeId>change:lexer|lexer]
         [Accent|Next step:] [Accent|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]

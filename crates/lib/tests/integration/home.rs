@@ -32,7 +32,7 @@ fn owned_changes_plus_open_ancestors_as_context() {
 }
 
 #[test]
-fn archived_changes_are_never_drawn_as_context() {
+fn archived_parent_drawn_as_context_until_fixed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("base", "main", &alice());
@@ -43,7 +43,8 @@ fn archived_changes_are_never_drawn_as_context() {
         nothing awaiting review by alice@example.com
 
         Owned
-        ○   top
+        ◌   base
+        ╰─○   top
 
         Workspaces
         ○   main
@@ -76,7 +77,7 @@ fn workspaces_section_shows_checked_out_changes_with_context() {
     .assert_eq(&home(&fixture));
 }
 
-/// An archived change hangs off what it landed into; an open change hangs past an archived parent.
+/// An archived change hangs off what it landed into.
 #[test]
 fn workspaces_section_keeps_archived_changes() {
     let fixture = Fixture::new();
@@ -91,11 +92,12 @@ fn workspaces_section_keeps_archived_changes() {
         nothing awaiting review by alice@example.com
 
         Owned
-        ○   after-done
+        ◌   done
+        ╰─○   after-done
 
         Workspaces
-        ○   after-done
         ○   done
+        ╰─○   after-done
     "#]]
     .assert_eq(&home(&fixture));
 }

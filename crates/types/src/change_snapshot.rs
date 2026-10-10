@@ -21,10 +21,7 @@ pub struct ChangeSnapshot {
     pub reviewing: Reviewing,
     pub owners: BTreeSet<Identity>,
     pub endorsers: BTreeSet<Identity>,
-    /// What the change targets; see `Metadata::parents`.
     pub parents: BTreeSet<ChangeId>,
-    /// What its log declares, which is what parent edits act on.
-    pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
     /// Where the change is checked out; see `Branch::workspace`.
     pub workspace: Option<WorkspaceId>,

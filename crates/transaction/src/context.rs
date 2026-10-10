@@ -144,10 +144,9 @@ impl<'ctx> TransactionContext<'ctx> {
 
     pub fn snapshot(&'ctx self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         let (metadata, branch) = (self.metadata(change_id)?, self.branch(change_id)?);
-        let parents = metadata.parents()?;
         Ok(ChangeSnapshot {
             tip: branch.tip,
-            bases: branch.bases(&parents)?.into(),
+            bases: branch.bases(&metadata.parents)?.into(),
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             archived: metadata.archived,
@@ -155,8 +154,7 @@ impl<'ctx> TransactionContext<'ctx> {
             reviewing: metadata.reviewing,
             owners: metadata.owners.clone(),
             endorsers: metadata.endorsers.clone(),
-            parents,
-            declared_parents: metadata.declared_parents.clone(),
+            parents: metadata.parents.clone(),
             review: metadata.review.clone(),
             workspace: branch.workspace()?,
         })

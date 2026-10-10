@@ -142,7 +142,7 @@ pub struct Metadata<'ctx> {
     pub owners: BTreeSet<Identity>,
     /// Who has approved the change as a whole. Unlike review, this holds however the change evolves.
     pub endorsers: BTreeSet<Identity>,
-    pub declared_parents: BTreeSet<ChangeId>,
+    pub parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
 }
 
@@ -160,7 +160,7 @@ impl<'ctx> Metadata<'ctx> {
             reviewing: Reviewing::None,
             owners: BTreeSet::new(),
             endorsers: BTreeSet::new(),
-            declared_parents: BTreeSet::new(),
+            parents: BTreeSet::new(),
             review: BTreeMap::new(),
         }
     }
@@ -176,7 +176,7 @@ impl<'ctx> Metadata<'ctx> {
         if ancestor == self.id.as_ref() {
             return Ok(true);
         }
-        self.declared_parents
+        self.parents
             .iter()
             .try_fold(false, |acc, parent| Ok(acc || self.ctx.metadata(parent)?.is_descendant(ancestor)?))
     }
@@ -185,21 +185,20 @@ impl<'ctx> Metadata<'ctx> {
         self.ctx.metadata(descendant)?.is_descendant(&self.id)
     }
 
-    /// The changes this one actually targets: declared parents, with archived ones replaced by
-    /// their own parents. None makes this a root.
-    // TODO-someday(joel): store computed parents?
-    pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
+    /// What fixing the parents leaves: archived ones replaced by their own parents, and those
+    /// already an ancestor of another dropped. An archived change's parents are what it landed
+    /// into, so stay as they are.
+    pub fn fixed_parents(&self) -> Result<BTreeSet<ChangeId>> {
         if self.archived {
-            return Ok(self.declared_parents.clone());
+            return Ok(self.parents.clone());
         }
 
         let mut candidates = BTreeSet::new();
-        let mut frontier: Vec<_> = self.declared_parents.iter().cloned().collect();
+        let mut frontier: Vec<_> = self.parents.iter().cloned().collect();
         while let Some(candidate_id) = frontier.pop() {
             let candidate = self.ctx.metadata(&candidate_id)?;
-            // skip archived parents and land into their parents
             if candidate.archived {
-                frontier.extend(candidate.declared_parents.iter().cloned());
+                frontier.extend(candidate.parents.iter().cloned());
             } else {
                 candidates.insert(candidate_id);
             }
@@ -228,7 +227,7 @@ impl<'ctx> Metadata<'ctx> {
                 self.owners.insert(owner.clone());
             }
             LogAction::AddParent { parent } => {
-                self.declared_parents.insert(parent.clone());
+                self.parents.insert(parent.clone());
             }
             LogAction::Endorse { endorser } => {
                 self.endorsers.insert(endorser.clone());
@@ -243,7 +242,7 @@ impl<'ctx> Metadata<'ctx> {
                 self.owners.remove(owner);
             }
             LogAction::RemoveParent { parent } => {
-                self.declared_parents.remove(parent);
+                self.parents.remove(parent);
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
@@ -270,10 +269,10 @@ impl<'ctx> Metadata<'ctx> {
         for endorser in self.endorsers.difference(&before.endorsers) {
             actions.push(LogAction::Endorse { endorser: endorser.clone() });
         }
-        for parent in before.declared_parents.difference(&self.declared_parents) {
+        for parent in before.parents.difference(&self.parents) {
             actions.push(LogAction::RemoveParent { parent: parent.clone() });
         }
-        for parent in self.declared_parents.difference(&before.declared_parents) {
+        for parent in self.parents.difference(&before.parents) {
             actions.push(LogAction::AddParent { parent: parent.clone() });
         }
         if self.archived != before.archived {

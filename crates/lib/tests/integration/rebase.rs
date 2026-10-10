@@ -321,6 +321,21 @@ fn conflicted_parent_refuses_unless_allowed() {
 }
 
 #[test]
+fn archived_parent_refuses_unless_allowed() {
+    let fixture = diverged();
+    fixture.create("grandchild", "child", &alice());
+    fixture.archive("child");
+    expect!["refused: child is archived"].assert_eq(&rebase(&fixture, "grandchild", None));
+    let allow = Allow::from_iter([SafeguardKind::ArchivedParent]);
+    expect!["Rebase { merged: {}, conflicts: {}, remaining: {} }"].assert_eq(&rebase_allowing(
+        &fixture,
+        "grandchild",
+        None,
+        &allow,
+    ));
+}
+
+#[test]
 fn merged_parent_brings_no_conflicts() {
     let fixture = conflicted();
     fixture.create("grandchild", "child", &alice());

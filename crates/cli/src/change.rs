@@ -55,7 +55,10 @@ pub enum ParentsCommand {
         parents: Vec<ChangeId>,
     },
     /// Replace archived parents with their own and drop those already an ancestor of another
-    Fix,
+    Fix {
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -300,30 +303,7 @@ impl ChangeCommand {
                     }
                 }
             }
-            ChangeCommand::Parents { change, command } => {
-                let change = &or_current(change)?;
-                match command {
-                    ParentsCommand::Show => return Err("change parents show is not implemented yet".into()),
-                    ParentsCommand::Create { name } => {
-                        let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
-                        println!("created {id} as parent of {change}");
-                    }
-                    ParentsCommand::Add { parent, allow } => {
-                        cabaret
-                            .add_parent(change, &parent, &Allow::from_iter(allow))
-                            .map_err(|error| refusal(&format!("add {parent} as a parent of {change}"), error))?;
-                    }
-                    ParentsCommand::Remove { parent, allow } => {
-                        cabaret
-                            .remove_parent(change, &parent, &Allow::from_iter(allow))
-                            .map_err(|error| refusal(&format!("remove {parent} as a parent of {change}"), error))?;
-                    }
-                    ParentsCommand::Fix => cabaret.fix_parents(change)?,
-                    ParentsCommand::Set { parents: _ } => {
-                        return Err("change parents set is not implemented yet".into());
-                    }
-                }
-            }
+            ChangeCommand::Parents { change, command } => parents(cabaret, &or_current(change)?, command)?,
             ChangeCommand::Rebase { change, onto, allow } => {
                 rebase(cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
             }
@@ -365,6 +345,35 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
                 let (before, after) = (version(*before, file.source())?, version(*after, file.path())?);
                 out.write_all(&unified(file, before.as_ref(), after.as_ref()))?;
             }
+        }
+    }
+    Ok(())
+}
+
+fn parents(cabaret: &Cabaret, change: &ChangeIdRef, command: ParentsCommand) -> Result<()> {
+    match command {
+        ParentsCommand::Show => return Err("change parents show is not implemented yet".into()),
+        ParentsCommand::Create { name } => {
+            let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
+            println!("created {id} as parent of {change}");
+        }
+        ParentsCommand::Add { parent, allow } => {
+            cabaret
+                .add_parent(change, &parent, &Allow::from_iter(allow))
+                .map_err(|error| refusal(&format!("add {parent} as a parent of {change}"), error))?;
+        }
+        ParentsCommand::Remove { parent, allow } => {
+            cabaret
+                .remove_parent(change, &parent, &Allow::from_iter(allow))
+                .map_err(|error| refusal(&format!("remove {parent} as a parent of {change}"), error))?;
+        }
+        ParentsCommand::Fix { allow } => {
+            cabaret
+                .fix_parents(change, &Allow::from_iter(allow))
+                .map_err(|error| refusal(&format!("fix the parents of {change}"), error))?;
+        }
+        ParentsCommand::Set { parents: _ } => {
+            return Err("change parents set is not implemented yet".into());
         }
     }
     Ok(())

@@ -31,7 +31,7 @@ fn scene_next_steps_up_for_review() {
         advanced-parent: [r] review by alice@example.com
         archived: (none)
         behind-child: [!r] rebase onto advanced-parent
-        child-of-archived: [r] review by alice@example.com
+        child-of-archived: fix parents, dropping archived
         co-owned: [r] review by alice@example.com, bob@example.com
         described: [r] review by alice@example.com
         empty: add code

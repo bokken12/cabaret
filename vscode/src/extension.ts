@@ -1504,7 +1504,7 @@ async function addParent(cabaret: Cabaret, change: ChangeId): Promise<string | u
 }
 
 async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const items = await changeItems(cabaret, (await cabaret.change(change)).declaredParents);
+  const items = await changeItems(cabaret, (await cabaret.change(change)).parents);
   const parent = (
     await vscode.window.showQuickPick(items, {
       title: `Cabaret: Remove Parent of ${change}`,

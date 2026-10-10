@@ -17,7 +17,6 @@ use crate::{
 #[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
 pub enum SafeguardKind {
     ArchivedParent,
-    ArchivedParents,
     BaseMoves,
     Conflicted,
     Empty,
@@ -40,7 +39,6 @@ pub enum SafeguardKind {
 impl SafeguardKind {
     pub const ALL: &[Self] = &[
         Self::ArchivedParent,
-        Self::ArchivedParents,
         Self::BaseMoves,
         Self::Conflicted,
         Self::Empty,
@@ -63,7 +61,6 @@ impl SafeguardKind {
     pub fn name(self) -> &'static str {
         match self {
             Self::ArchivedParent => "archived-parent",
-            Self::ArchivedParents => "archived-parents",
             Self::BaseMoves => "base-moves",
             Self::Conflicted => "conflicted",
             Self::Empty => "empty",
@@ -93,7 +90,6 @@ impl fmt::Display for SafeguardKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Safeguard {
     ArchivedParent(ArchivedParent),
-    ArchivedParents(ArchivedParents),
     BaseMoves(BaseMoves),
     Conflicted(Conflicted),
     Empty(Empty),
@@ -117,7 +113,6 @@ impl Safeguard {
     pub fn kind(&self) -> SafeguardKind {
         match self {
             Self::ArchivedParent(_) => SafeguardKind::ArchivedParent,
-            Self::ArchivedParents(_) => SafeguardKind::ArchivedParents,
             Self::BaseMoves(_) => SafeguardKind::BaseMoves,
             Self::Conflicted(_) => SafeguardKind::Conflicted,
             Self::Empty(_) => SafeguardKind::Empty,
@@ -143,7 +138,6 @@ impl fmt::Display for Safeguard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ArchivedParent(particulars) => particulars.fmt(f),
-            Self::ArchivedParents(particulars) => particulars.fmt(f),
             Self::BaseMoves(particulars) => particulars.fmt(f),
             Self::Conflicted(particulars) => particulars.fmt(f),
             Self::Empty(particulars) => particulars.fmt(f),
@@ -191,39 +185,25 @@ fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
     items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
 
-/// An archived parent, which working out the change's parents skips.
+/// An archived parent, which fixing the change's parents replaces with its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchivedParent {
     pub parent: ChangeId,
 }
 
 impl fmt::Display for ArchivedParent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} is archived, so it would be skipped", self.parent)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{} is archived", self.parent) }
 }
 
-/// Declared parents that are archived, so the change would land past them, taking in their work.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArchivedParents {
-    pub parents: NEBTreeSet<ChangeId>,
-}
-
-impl fmt::Display for ArchivedParents {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
-        write!(f, "{} {verb} archived, so its diff would take in the archived work", joined(&self.parents))
-    }
-}
-/// Removing a parent moves the change's base back, taking the parent's work into its diff.
+/// Removing parents moves the change's base back, taking their work into its diff.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BaseMoves {
-    pub removed: ChangeId,
+    pub removed: NEBTreeSet<ChangeId>,
 }
 
 impl fmt::Display for BaseMoves {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "its diff would take in the work of {}", self.removed)
+        write!(f, "its diff would take in the work of {}", joined(&self.removed))
     }
 }
 
@@ -288,7 +268,7 @@ impl fmt::Display for NonOwner {
     }
 }
 
-/// Open changes still land into the change, and would move to land past it.
+/// Open changes still land into the change, and would be left with an archived parent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenChildren {
     pub children: NEBTreeSet<ChangeId>,
@@ -352,7 +332,7 @@ impl fmt::Display for Permanent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it is permanent") }
 }
 
-/// A parent that is already an ancestor of another, which working out the change's parents skips.
+/// A parent already an ancestor of another, which fixing the change's parents drops.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedundantParent {
     pub parent: ChangeId,
@@ -361,7 +341,7 @@ pub struct RedundantParent {
 
 impl fmt::Display for RedundantParent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} is already an ancestor of {}, so it would be skipped", self.parent, self.descendant)
+        write!(f, "{} is already an ancestor of {}", self.parent, self.descendant)
     }
 }
 

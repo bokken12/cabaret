@@ -155,6 +155,24 @@ fn unreviewed_parent_refuses_unless_allowed() {
 }
 
 #[test]
+fn archived_parent_refuses_unless_allowed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("done", "main", &alice());
+    fixture.create("child", "done", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
+    fixture.endorse("child");
+    fixture.archive("done");
+    expect!["refused: done is archived"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into done"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        &Allow::from_iter([SafeguardKind::ArchivedParent]),
+    ));
+}
+
+#[test]
 fn uncommitted_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.checkout("child");

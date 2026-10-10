@@ -42,7 +42,7 @@ fn open_children_refuse_unless_allowed() {
     expect!["refused: child still lands into it"].assert_eq(&archive(&fixture, "parent", &Allow::default()));
     let allow = Allow::from_iter([SafeguardKind::OpenChildren]);
     expect!["done"].assert_eq(&archive(&fixture, "parent", &allow));
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -59,10 +59,6 @@ fn archived_parents_refuse_unarchiving_unless_allowed() {
     let fixture = stacked();
     fixture.archive("child");
     fixture.archive("parent");
-    expect!["refused: parent is archived, so its diff would take in the archived work"].assert_eq(&unarchive(
-        &fixture,
-        "child",
-        &Allow::default(),
-    ));
-    expect!["done"].assert_eq(&unarchive(&fixture, "child", &Allow::from_iter([SafeguardKind::ArchivedParents])));
+    expect!["refused: parent is archived"].assert_eq(&unarchive(&fixture, "child", &Allow::default()));
+    expect!["done"].assert_eq(&unarchive(&fixture, "child", &Allow::from_iter([SafeguardKind::ArchivedParent])));
 }
