@@ -1,0 +1,3 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/change.rs","revision":"838899c7ee161a6fc8052e16ce4d319b54dd95e6"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"838899c7ee161a6fc8052e16ce4d319b54dd95e6"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"838899c7ee161a6fc8052e16ce4d319b54dd95e6"}
