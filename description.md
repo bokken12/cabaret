@@ -1,0 +1,1 @@
+Add `cab change parents fix`, which declares the parents a change targets as its parents: archived parents replaced by their own, and parents already an ancestor of another dropped.
