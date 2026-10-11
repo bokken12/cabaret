@@ -619,7 +619,7 @@ impl Cabaret {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
             metadata.title = Some(name.to_owned());
-            metadata.declared_parents = parent_ids.iter().cloned().collect();
+            metadata.parents = parent_ids.iter().cloned().collect();
             metadata.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })?;
@@ -630,7 +630,7 @@ impl Cabaret {
     pub fn create_parent(&self, name: &str, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
         // TODO(joel): currently non-atomic to build tip
-        let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;
+        let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.parents.clone()))?;
         let mut to_merge = parents.iter();
         let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
 
@@ -641,9 +641,9 @@ impl Cabaret {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
             change.title = Some(name.to_owned());
-            change.declared_parents.clone_from(&parents);
+            change.parents.clone_from(&parents);
             change.owners = BTreeSet::from([owner.clone()]);
-            child.declared_parents = BTreeSet::from([change_id.clone()]);
+            child.parents = BTreeSet::from([change_id.clone()]);
             Ok(())
         })?;
         Ok(change_id)
@@ -796,7 +796,7 @@ impl Cabaret {
                 return Ok(());
             }
             let mut archived = BTreeSet::new();
-            for parent in &metadata.declared_parents {
+            for parent in &metadata.parents {
                 if ctx.metadata(parent)?.archived {
                     archived.insert(parent.clone());
                 }
@@ -844,7 +844,7 @@ impl Cabaret {
     /// error, since the graph would cycle.
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
-            if !metadata.declared_parents.insert(parent_id.to_owned()) {
+            if !metadata.parents.insert(parent_id.to_owned()) {
                 return Ok(());
             }
             if parent_id == change_id {
@@ -861,7 +861,7 @@ impl Cabaret {
     pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |_ctx, metadata| {
             let before = metadata.clone();
-            if !metadata.declared_parents.remove(parent_id) {
+            if !metadata.parents.remove(parent_id) {
                 return Ok(());
             }
             allow.check(remove_parent_safeguards(&before, metadata, parent_id)?)?;
@@ -872,7 +872,7 @@ impl Cabaret {
     /// Declare the parents `change_id` targets, see `Metadata::parents`, as its parents.
     pub fn fix_parents(&self, change_id: &ChangeIdRef) -> Result<()> {
         self.store.update_metadata(change_id, |_ctx, metadata| {
-            metadata.declared_parents = metadata.parents()?;
+            metadata.parents = metadata.parents()?;
             Ok(())
         })
     }
@@ -1208,7 +1208,7 @@ fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result
     if ctx.metadata(added)?.archived && !metadata.archived {
         safeguards.push(Safeguard::ArchivedParent(ArchivedParent { parent: added.to_owned() }));
     }
-    for other in metadata.declared_parents.iter().filter(|other| other.as_ref() != added) {
+    for other in metadata.parents.iter().filter(|other| other.as_ref() != added) {
         if ctx.metadata(other)?.is_descendant(added)? {
             let redundant = RedundantParent { parent: added.to_owned(), descendant: other.clone() };
             safeguards.push(Safeguard::RedundantParent(redundant));

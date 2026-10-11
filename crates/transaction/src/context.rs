@@ -168,7 +168,7 @@ impl<'ctx> TransactionContext<'ctx> {
             owners: metadata.owners.clone(),
             endorsers: metadata.endorsers.clone(),
             parents,
-            declared_parents: metadata.declared_parents.clone(),
+            declared_parents: metadata.parents.clone(),
             review: metadata.review.clone(),
             workspace: branch.workspace()?,
         })
