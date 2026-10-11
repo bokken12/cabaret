@@ -1,6 +1,7 @@
 mod cabaret;
 #[cfg(feature = "napi")]
 mod node;
+mod sync;
 
 pub use cabaret::{Cabaret, Prune, Rebase};
 pub use cabaret_config::{FetchInterval, Hints, Prefix, Scope, Setting};
