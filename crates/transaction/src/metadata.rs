@@ -172,6 +172,9 @@ impl<'ctx> Metadata<'ctx> {
     /// The commit this state was read from; `None` before the change's first write.
     pub fn commit(&self) -> Option<ObjectId> { self.commit }
 
+    /// Owners who have not endorsed the change, since every owner is to approve it before it lands.
+    pub fn unendorsed(&self) -> BTreeSet<Identity> { self.owners.difference(&self.endorsers).cloned().collect() }
+
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
             return Ok(true);

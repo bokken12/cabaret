@@ -1092,7 +1092,7 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed) {
         return Ok(Some(NextStep::Review { reviewers }));
     }
-    if let Some(owners) = NEBTreeSet::try_from_set(unendorsed(metadata)) {
+    if let Some(owners) = NEBTreeSet::try_from_set(metadata.unendorsed()) {
         return Ok(Some(NextStep::Endorse { owners }));
     }
     Ok(Some(match parents.iter().collect::<Vec<_>>().as_slice() {
@@ -1115,11 +1115,6 @@ fn unreviewed(
         }
     }
     Ok(reviewers)
-}
-
-/// Owners who have not endorsed the change, since every owner is to approve it before it lands.
-fn unendorsed(metadata: &Metadata<'_>) -> BTreeSet<Identity> {
-    metadata.owners.difference(&metadata.endorsers).cloned().collect()
 }
 
 fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguard>> {
@@ -1166,7 +1161,7 @@ fn land_safeguards(
     if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
         safeguards.push(Safeguard::Unreviewed(Unreviewed { reviewers }));
     }
-    if let Some(owners) = NEBTreeSet::try_from_set(unendorsed(metadata)) {
+    if let Some(owners) = NEBTreeSet::try_from_set(metadata.unendorsed()) {
         safeguards.push(Safeguard::Unendorsed(Unendorsed { owners }));
     }
     let parent = ctx.metadata(parent_id)?;
