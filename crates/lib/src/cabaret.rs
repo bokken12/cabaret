@@ -1244,25 +1244,13 @@ fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<NoCommonAncestor
     let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
     let mut common: Option<BTreeSet<ChangeId>> = None;
     for parent in &parents {
-        let ancestors = ancestors(metadata.ctx(), parent)?;
+        let ancestors = metadata.ctx().ancestors(parent)?;
         common = Some(match common {
             None => ancestors,
             Some(common) => &common & &ancestors,
         });
     }
     Ok(common.is_some_and(|common| common.is_empty()).then_some(NoCommonAncestor { parents }))
-}
-
-/// `change_id` and every change it lands through.
-fn ancestors<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
-    let mut ancestors = BTreeSet::new();
-    let mut frontier = vec![change_id.to_owned()];
-    while let Some(id) = frontier.pop() {
-        if ancestors.insert(id.clone()) {
-            frontier.extend(ctx.metadata(&id)?.parents()?);
-        }
-    }
-    Ok(ancestors)
 }
 
 /// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.

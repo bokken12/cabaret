@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, FileVersion, Identity, RepoPath, Result, RevisionId, TreeId, WorkspaceId,
@@ -80,6 +80,18 @@ impl<'ctx> TransactionContext<'ctx> {
             changes.push(reference?.name().shorten().to_str()?.parse()?);
         }
         Ok(changes)
+    }
+
+    /// `change_id` and every change it lands through.
+    pub fn ancestors(&'ctx self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+        let mut ancestors = BTreeSet::new();
+        let mut frontier = vec![change_id.to_owned()];
+        while let Some(id) = frontier.pop() {
+            if ancestors.insert(id.clone()) {
+                frontier.extend(self.metadata(&id)?.parents()?);
+            }
+        }
+        Ok(ancestors)
     }
 
     /// The branch changes target unless told otherwise: origin's HEAD, or without one whichever of
