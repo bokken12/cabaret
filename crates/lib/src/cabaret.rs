@@ -97,8 +97,6 @@ impl Cabaret {
         })
     }
 
-    pub fn identity(&self) -> Result<Identity> { self.store.query(|ctx| ctx.identity()) }
-
     pub fn current_change(&self) -> Result<ChangeId> { self.store.query(|ctx| ctx.current_change()) }
 
     pub fn trunk(&self) -> Result<ChangeId> { self.store.query(|ctx| ctx.default_branch()) }

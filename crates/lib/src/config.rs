@@ -1,10 +1,11 @@
 use cabaret_config::{Scope, Setting};
-use cabaret_types::Result;
+use cabaret_types::{Identity, Result};
 
 use crate::cabaret::Cabaret;
 
 impl Cabaret {
-    // Config operations
+    // TODO(joel): delete?
+    pub fn identity(&self) -> Result<Identity> { self.store.query(|ctx| ctx.identity()) }
 
     /// `S` as git config reads it here, from whichever scope sets it.
     pub fn config<S: Setting>(&self) -> Result<Option<S>> { cabaret_config::get(&self.store.repo.to_thread_local()) }
