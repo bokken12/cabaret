@@ -1,0 +1,1 @@
+Derive Reviewing's names, Display, and parsing with strum, replacing its hand-written ALL list and name().
