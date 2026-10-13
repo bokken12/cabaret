@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, Identity, Result};
+use cabaret_lib::{Cabaret, Error, Identity, Result, safeguard::SafeguardKind};
 use clap::{Parser, Subcommand, ValueHint};
 
 pub mod args;
@@ -85,4 +85,17 @@ pub fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// What `cab` prints for `error`: each safeguard refusing on its own line, naming the flag that
+/// allows it, since `--allow <kind>` works on every command.
+pub fn report(error: &Error) -> String {
+    match error {
+        Error::Refused(refused) => refused
+            .iter()
+            .map(|safeguard| format!("cab: {safeguard}; pass --allow {} to override", SafeguardKind::from(safeguard)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Error::Failed(message) => format!("cab: {message}"),
+    }
 }

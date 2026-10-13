@@ -6,10 +6,7 @@ use cabaret_lib::{
 };
 use clap::{Subcommand, ValueHint};
 
-use crate::{
-    args::{change_completer, safeguard_kind},
-    change::refusal,
-};
+use crate::args::{change_completer, safeguard_kind};
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
@@ -62,9 +59,7 @@ impl WorkspaceCommand {
                     Some(workspace) => workspace,
                     None => cabaret.workspace_current()?,
                 };
-                cabaret
-                    .workspace_switch(workspace.to_ref(), &switch_to, &Allow::from_iter(allow))
-                    .map_err(|error| refusal(&format!("switch workspace {workspace} to {switch_to}"), error))?;
+                cabaret.workspace_switch(workspace.to_ref(), &switch_to, &Allow::from_iter(allow))?;
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -89,9 +84,7 @@ impl WorkspaceCommand {
             }
             WorkspaceCommand::Remove { change, path, allow } => {
                 let workspace = named(cabaret, change, path)?.expect("clap requires one of change or path");
-                cabaret
-                    .workspace_remove(workspace.to_ref(), &Allow::from_iter(allow))
-                    .map_err(|error| refusal(&format!("remove workspace {workspace}"), error))?;
+                cabaret.workspace_remove(workspace.to_ref(), &Allow::from_iter(allow))?;
             }
         }
 

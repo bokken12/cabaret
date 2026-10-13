@@ -15,7 +15,7 @@ fn main() -> ExitCode {
     match cabaret_cli::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("cab: {error:?}");
+            eprintln!("{}", cabaret_cli::report(&error));
             ExitCode::FAILURE
         }
     }
