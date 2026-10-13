@@ -1,1 +1,1 @@
-Report refusals once where cab prints errors, each safeguard on its own line with its --allow flag, rather than wrapping every refusable call with the action it was attempting.
+Print refusals in main, each safeguard on its own line with its --allow flag, rather than wrapping every refusable call with the action it was attempting.
