@@ -66,3 +66,11 @@ fn archived_parents_refuse_unarchiving_unless_allowed() {
     ));
     expect!["done"].assert_eq(&unarchive(&fixture, "child", &Allow::from_iter([SafeguardKind::ArchivedParents])));
 }
+
+#[test]
+fn unknown_change_does_not_exist() {
+    let fixture = stacked();
+    let allow = Allow::from_iter([SafeguardKind::OpenChildren, SafeguardKind::Permanent]);
+    expect!["error: nope does not exist"].assert_eq(&archive(&fixture, "nope", &allow));
+    expect![[r#"["child", "main", "parent"]"#]].assert_eq(&format!("{:?}", fixture.cabaret.changes().unwrap()));
+}

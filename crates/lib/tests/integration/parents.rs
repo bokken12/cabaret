@@ -262,3 +262,12 @@ fn removal_moving_base_refuses_unless_allowed() {
     expect!["done"].assert_eq(&remove_parent(&fixture, "child", "parent", &allow));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
+
+#[test]
+fn unknown_parent_does_not_exist() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("change", "main", &alice());
+    let allow = Allow::from_iter([SafeguardKind::NoCommonAncestor]);
+    expect!["error: nope does not exist"].assert_eq(&add_parent(&fixture, "change", "nope", &allow));
+}

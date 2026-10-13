@@ -199,11 +199,18 @@ impl Store {
         // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 
-        // Metadata needs no insert: a change without a log has empty metadata, and its first
-        // append creates the log.
+        // A change being inserted has no log until its first append creates it.
+        let before = |id: &ChangeIdRef| -> Result<Metadata<'_>> {
+            let inserting =
+                branch_ops.iter().any(|op| matches!(op, BranchOp::Insert { id: inserted, .. } if *inserted == id));
+            Ok(match inserting && ctx.repo.try_find_reference(&id.log_ref())?.is_none() {
+                true => Metadata::new(&ctx, id.to_owned(), None),
+                false => ctx.metadata(id)?.clone(),
+            })
+        };
         let mut metadata = Vec::with_capacity(L);
         for id in metadata_ids {
-            metadata.push(ctx.metadata(id)?.clone());
+            metadata.push(before(id)?);
         }
         let mut metadata: [Metadata<'_>; L] = metadata.try_into().expect("one metadata per id");
         let mut branches = Vec::with_capacity(M);
@@ -232,7 +239,7 @@ impl Store {
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
         for (id, metadata) in metadata_ids.iter().zip(&metadata) {
-            edits.extend(metadata.write_since(ctx.metadata(id)?)?);
+            edits.extend(metadata.write_since(&before(id)?)?);
         }
         let mut moved = Vec::new();
         for (op, branch) in branch_ops.iter().zip(&branches) {

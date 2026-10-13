@@ -210,10 +210,16 @@ impl<'ctx> Metadata<'ctx> {
         self.ctx.maximal_changes(&candidates)
     }
 
-    /// Fold `id`'s log and read its description.
+    /// Fold `id`'s log and read its description. A change without a log yet, a plain branch or
+    /// one known only from origin, has empty metadata; an id that is neither is no change at all.
     pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
         let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
-            return Ok(Metadata::new(ctx, id.to_owned(), None));
+            for name in [id.branch_ref(), id.origin_log_ref()] {
+                if ctx.repo.try_find_reference(&name)?.is_some() {
+                    return Ok(Metadata::new(ctx, id.to_owned(), None));
+                }
+            }
+            Err(format!("{id} does not exist"))?
         };
         let commit = reference.into_fully_peeled_id()?.detach();
         let tree = ctx.repo.find_commit(commit)?.tree()?;
