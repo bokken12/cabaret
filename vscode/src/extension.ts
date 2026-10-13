@@ -1452,8 +1452,13 @@ async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome 
   if (name === undefined) {
     return undefined;
   }
-  const child = await cabaret.create(name, parent);
-  return { report: `created ${child} with parent ${parent}`, show: { kind: "show", change: child } };
+  const creating = (allow: SafeguardKind[]) => cabaret.create(name, parent, allow);
+  const created = await despite(`Create ${name}`, "Create Anyway", [], creating);
+  if (created === undefined) {
+    return undefined;
+  }
+  const { change } = created;
+  return { report: `created ${change} with parent ${parent}`, show: { kind: "show", change } };
 }
 
 async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome | undefined> {

@@ -165,7 +165,7 @@ impl Fixture {
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret.create(change, &NEBTreeSet::new(id(parent)), owner).unwrap();
+        self.cabaret.create(change, &NEBTreeSet::new(id(parent)), owner, &Allow::default()).unwrap();
     }
 
     /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.

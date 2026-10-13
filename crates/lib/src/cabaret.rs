@@ -256,13 +256,27 @@ impl Cabaret {
         self.config::<Prefix>()?.unwrap_or_default().apply(name, &Zoned::now())
     }
 
-    /// Create a change named `name` on `parent_ids`, returning its id.
-    pub fn create(&self, name: &str, parent_ids: &NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
+    /// Create a change named `name` on `parent_ids`, returning its id. Safeguards not in `allow`
+    /// refuse, before anything is merged.
+    pub fn create(
+        &self,
+        name: &str,
+        parent_ids: &NEBTreeSet<ChangeId>,
+        owner: &Identity,
+        allow: &Allow,
+    ) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
         let (first, rest) = parent_ids.nonempty_iter().next();
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
         let branches = [BranchOp::Insert { id: &change_id, tip }];
         self.store.transact(&[&change_id], &branches, &[], |ctx, [metadata], [branch], []| {
+            let mut safeguards = Vec::new();
+            for parent_id in parent_ids {
+                if ctx.metadata(parent_id)?.archived {
+                    safeguards.push(Safeguard::ArchivedParent { parent: parent_id.clone() });
+                }
+            }
+            allow.check(safeguards)?;
             for parent_id in rest {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }

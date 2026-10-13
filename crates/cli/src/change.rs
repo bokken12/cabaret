@@ -82,6 +82,8 @@ pub enum ChangeCommand {
         parent: Vec<ChangeId>,
         #[arg(long, add = change_completer(), conflicts_with = "parent")]
         child: Option<ChangeId>,
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     /// Set the change's description, given or else read from stdin; blank clears it.
     Describe {
@@ -217,8 +219,14 @@ impl ChangeCommand {
                     .map_err(|error| refusal(&format!("commit to {change}"), error))?;
                 println!("committed to {change}");
             }
-            ChangeCommand::Create { name, parent, child } => {
+            ChangeCommand::Create { name, parent, child, allow } => {
                 let owner = &cabaret.identity()?;
+                let allow = &Allow::from_iter(allow);
+                let create = |parents| {
+                    cabaret
+                        .create(&name, parents, owner, allow)
+                        .map_err(|error| refusal(&format!("create {name}"), error))
+                };
                 match (child, NEVec::try_from_vec(parent)) {
                     (Some(_), Some(_)) => unreachable!("clap rejects --parent with --child"),
                     (Some(child), None) => {
@@ -226,13 +234,13 @@ impl ChangeCommand {
                         println!("created {id} as parent of {child}");
                     }
                     (None, Some(parents)) => {
-                        let id = cabaret.create(&name, &parents.into_nonempty_iter().collect(), owner)?;
+                        let id = create(&parents.into_nonempty_iter().collect())?;
                         // TODO(joel): informative message
                         println!("created {id}");
                     }
                     (None, None) => {
                         let parent = cabaret.current_change()?;
-                        let id = cabaret.create(&name, &NEBTreeSet::new(parent.clone()), owner)?;
+                        let id = create(&NEBTreeSet::new(parent.clone()))?;
                         println!("created {id} with parent {parent}");
                     }
                 }

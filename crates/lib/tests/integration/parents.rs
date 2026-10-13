@@ -150,7 +150,7 @@ fn created_on_several_parents_starts_at_their_merge() {
     fixture.commit("left", &[("left.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
-    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &Allow::default()).unwrap();
     expect![[r#"
         join
           parents left right
@@ -170,7 +170,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &Allow::default()).unwrap();
     expect![[r#"
         join
           parents left right
@@ -250,7 +250,7 @@ fn removal_moving_base_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &bob());
     fixture.commit("parent", &[("parent.txt", "parent\n")]);
-    fixture.cabaret.create("child", &nebts![id("parent"), id("main")], &alice()).unwrap();
+    fixture.cabaret.create("child", &nebts![id("parent"), id("main")], &alice(), &Allow::default()).unwrap();
     fixture.commit("child", &[("child.txt", "child\n")]);
     expect!["refused: its diff would take in the work of parent"].assert_eq(&remove_parent(
         &fixture,

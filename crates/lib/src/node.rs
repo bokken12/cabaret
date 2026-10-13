@@ -83,6 +83,13 @@ impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> f
     }
 }
 
+/// What [`Cabaret::create`] did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Created {
+    Done { change: ChangeId },
+    Refused { safeguards: Vec<Safeguard> },
+}
+
 /// What [`Cabaret::commit`] did.
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Committed {
@@ -319,10 +326,17 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.discard(&change, &pathspecs)).await
     }
 
-    /// Create a change named `name` as a child of `parent`, owned by git's user.email, returning its id.
+    /// Create a change named `name` as a child of `parent`, owned by git's user.email.
     #[napi]
-    pub async fn create(&self, name: String, parent: ChangeId) -> napi::Result<ChangeId> {
-        self.blocking(move |cabaret| cabaret.create(&name, &NEBTreeSet::new(parent), &cabaret.identity()?)).await
+    pub async fn create(&self, name: String, parent: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Created> {
+        self.blocking(move |cabaret| {
+            let parents = NEBTreeSet::new(parent);
+            Ok(match outcome(cabaret.create(&name, &parents, &cabaret.identity()?, &Allow::from_iter(allow)))? {
+                Ok(change) => Created::Done { change },
+                Err(refused) => Created::Refused { safeguards: presented(refused) },
+            })
+        })
+        .await
     }
 
     /// Create a change named `name` as a parent of `child`, owned by git's user.email, returning its id.
