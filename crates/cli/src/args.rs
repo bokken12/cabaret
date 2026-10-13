@@ -14,9 +14,7 @@ pub fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
 }
 
 pub fn reviewing() -> impl TypedValueParser<Value = Reviewing> {
-    PossibleValuesParser::new(Reviewing::ALL.iter().map(|reviewing| reviewing.name())).map(|name| {
-        *Reviewing::ALL.iter().find(|reviewing| reviewing.name() == name).expect("only reviewing states are possible")
-    })
+    PossibleValuesParser::new(Reviewing::VARIANTS).map(|name| name.parse().expect("only reviewing states are possible"))
 }
 
 fn cabaret() -> Result<Cabaret> { Cabaret::open(std::env::current_dir()?) }
