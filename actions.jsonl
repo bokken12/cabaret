@@ -1,0 +1,4 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/tests/safeguards.rs","revision":"27195fc5621972c38657940ca5072e363b34148a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"27195fc5621972c38657940ca5072e363b34148a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/workspace.rs","revision":"27195fc5621972c38657940ca5072e363b34148a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/safeguard.rs","revision":"27195fc5621972c38657940ca5072e363b34148a"}
