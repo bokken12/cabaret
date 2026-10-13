@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use cabaret_lib::gix::tempfile::signal;
+use cabaret_lib::{Error, gix::tempfile::signal, safeguard::SafeguardKind};
 use clap::CommandFactory;
 use clap_complete::CompleteEnv;
 
@@ -14,8 +14,15 @@ fn main() -> ExitCode {
     CompleteEnv::with_factory(cabaret_cli::Cli::command).complete();
     match cabaret_cli::run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{}", cabaret_cli::report(&error));
+        // `--allow <kind>` works on every command, so each refusing safeguard names the flag for it.
+        Err(Error::Refused(refused)) => {
+            for safeguard in refused {
+                eprintln!("cab: {safeguard}; pass --allow {} to override", SafeguardKind::from(&safeguard));
+            }
+            ExitCode::FAILURE
+        }
+        Err(Error::Failed(message)) => {
+            eprintln!("cab: {message}");
             ExitCode::FAILURE
         }
     }
