@@ -1,0 +1,4 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/archive.rs","revision":"86ebb55fc3d7ea55ae23d82ed4b53e40546bd74c"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"86ebb55fc3d7ea55ae23d82ed4b53e40546bd74c"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"86ebb55fc3d7ea55ae23d82ed4b53e40546bd74c"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/store.rs","revision":"86ebb55fc3d7ea55ae23d82ed4b53e40546bd74c"}
