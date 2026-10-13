@@ -52,7 +52,7 @@ pub struct Safeguard {
 
 fn presented(safeguards: impl IntoIterator<Item = cabaret_types::safeguard::Safeguard>) -> Vec<Safeguard> {
     let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
-        kind: safeguard.kind(),
+        kind: SafeguardKind::from(&safeguard),
         message: safeguard.to_string(),
     };
     safeguards.into_iter().map(present).collect()

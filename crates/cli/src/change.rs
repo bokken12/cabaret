@@ -407,7 +407,7 @@ pub fn refusal(action: &str, error: Error) -> Error {
     let Error::Refused(refused) = error else { return error };
     let reasons: Vec<String> = refused
         .into_iter()
-        .map(|safeguard| format!("{safeguard}; pass --allow {} to override", safeguard.kind()))
+        .map(|safeguard| format!("{safeguard}; pass --allow {} to override", SafeguardKind::from(&safeguard)))
         .collect();
     match reasons.as_slice() {
         [reason] => format!("cannot {action}: {reason}"),

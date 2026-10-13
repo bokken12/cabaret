@@ -6,11 +6,11 @@ use std::ffi::OsStr;
 use cabaret_lib::{Cabaret, Result, Reviewing, RevisionId, safeguard::SafeguardKind};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
+use strum::VariantNames;
 
 pub fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
-    PossibleValuesParser::new(SafeguardKind::ALL.iter().map(|kind| kind.name())).map(|name| {
-        *SafeguardKind::ALL.iter().find(|kind| kind.name() == name).expect("only safeguard kinds are possible")
-    })
+    PossibleValuesParser::new(SafeguardKind::VARIANTS)
+        .map(|name| name.parse().expect("only safeguard kinds are possible"))
 }
 
 pub fn reviewing() -> impl TypedValueParser<Value = Reviewing> {

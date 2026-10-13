@@ -3,6 +3,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use nonempty_collections::{NEBTreeSet, NEVec};
+use strum::{Display, EnumDiscriminants, EnumString, VariantNames};
 
 use crate::{
     change_id::ChangeId,
@@ -12,85 +13,15 @@ use crate::{
     workspace_id::WorkspaceId,
 };
 
-/// A safeguard without its particulars, as frontends name one to allow it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
-pub enum SafeguardKind {
-    ArchivedParent,
-    ArchivedParents,
-    BaseMoves,
-    Conflicted,
-    Empty,
-    ImpermanentParents,
-    NoCommonAncestor,
-    NonOwner,
-    OpenChildren,
-    Ownerless,
-    ParentConflicted,
-    Parentless,
-    ParentUnreviewed,
-    Permanent,
-    RedundantParent,
-    RemovesOthers,
-    Uncommitted,
-    Unendorsed,
-    Unreviewed,
-}
-
-impl SafeguardKind {
-    pub const ALL: &[Self] = &[
-        Self::ArchivedParent,
-        Self::ArchivedParents,
-        Self::BaseMoves,
-        Self::Conflicted,
-        Self::Empty,
-        Self::ImpermanentParents,
-        Self::NoCommonAncestor,
-        Self::NonOwner,
-        Self::OpenChildren,
-        Self::Ownerless,
-        Self::ParentConflicted,
-        Self::Parentless,
-        Self::ParentUnreviewed,
-        Self::Permanent,
-        Self::RedundantParent,
-        Self::RemovesOthers,
-        Self::Uncommitted,
-        Self::Unendorsed,
-        Self::Unreviewed,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::ArchivedParent => "archived-parent",
-            Self::ArchivedParents => "archived-parents",
-            Self::BaseMoves => "base-moves",
-            Self::Conflicted => "conflicted",
-            Self::Empty => "empty",
-            Self::ImpermanentParents => "impermanent-parents",
-            Self::NoCommonAncestor => "no-common-ancestor",
-            Self::NonOwner => "non-owner",
-            Self::OpenChildren => "open-children",
-            Self::Ownerless => "ownerless",
-            Self::ParentConflicted => "parent-conflicted",
-            Self::Parentless => "parentless",
-            Self::ParentUnreviewed => "parent-unreviewed",
-            Self::Permanent => "permanent",
-            Self::RedundantParent => "redundant-parent",
-            Self::RemovesOthers => "removes-others",
-            Self::Uncommitted => "uncommitted",
-            Self::Unendorsed => "unendorsed",
-            Self::Unreviewed => "unreviewed",
-        }
-    }
-}
-
-impl fmt::Display for SafeguardKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.name()) }
-}
-
 /// Any action's safeguard.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, EnumDiscriminants)]
+#[strum_discriminants(
+    name(SafeguardKind),
+    doc = "A safeguard without its particulars, as frontends name one to allow it.",
+    derive(PartialOrd, Ord, Display, EnumString, VariantNames),
+    strum(serialize_all = "kebab-case"),
+    cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))
+)]
 pub enum Safeguard {
     /// An archived parent, which working out the change's parents skips.
     ArchivedParent { parent: ChangeId },
@@ -130,32 +61,6 @@ pub enum Safeguard {
     Unendorsed { owners: NEBTreeSet<Identity> },
     /// Owners have files of the change left to review.
     Unreviewed { reviewers: NEBTreeSet<Identity> },
-}
-
-impl Safeguard {
-    pub fn kind(&self) -> SafeguardKind {
-        match self {
-            Self::ArchivedParent { .. } => SafeguardKind::ArchivedParent,
-            Self::ArchivedParents { .. } => SafeguardKind::ArchivedParents,
-            Self::BaseMoves { .. } => SafeguardKind::BaseMoves,
-            Self::Conflicted { .. } => SafeguardKind::Conflicted,
-            Self::Empty { .. } => SafeguardKind::Empty,
-            Self::ImpermanentParents { .. } => SafeguardKind::ImpermanentParents,
-            Self::NoCommonAncestor { .. } => SafeguardKind::NoCommonAncestor,
-            Self::NonOwner { .. } => SafeguardKind::NonOwner,
-            Self::OpenChildren { .. } => SafeguardKind::OpenChildren,
-            Self::Ownerless => SafeguardKind::Ownerless,
-            Self::ParentConflicted { .. } => SafeguardKind::ParentConflicted,
-            Self::Parentless => SafeguardKind::Parentless,
-            Self::ParentUnreviewed { .. } => SafeguardKind::ParentUnreviewed,
-            Self::Permanent => SafeguardKind::Permanent,
-            Self::RedundantParent { .. } => SafeguardKind::RedundantParent,
-            Self::RemovesOthers { .. } => SafeguardKind::RemovesOthers,
-            Self::Uncommitted { .. } => SafeguardKind::Uncommitted,
-            Self::Unendorsed { .. } => SafeguardKind::Unendorsed,
-            Self::Unreviewed { .. } => SafeguardKind::Unreviewed,
-        }
-    }
 }
 
 impl fmt::Display for Safeguard {
@@ -218,7 +123,7 @@ impl Allow {
 
     /// Refuse the action if any of `safeguards` is not allowed.
     pub fn check(&self, safeguards: Vec<Safeguard>) -> Result<()> {
-        let refused = safeguards.into_iter().filter(|safeguard| !self.allows(safeguard.kind())).collect();
+        let refused = safeguards.into_iter().filter(|safeguard| !self.allows(SafeguardKind::from(safeguard))).collect();
         match NEVec::try_from_vec(refused) {
             Some(refused) => Err(Error::Refused(refused)),
             None => Ok(()),

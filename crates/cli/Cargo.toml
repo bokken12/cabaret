@@ -15,6 +15,7 @@ clap.workspace = true
 clap_complete.workspace = true
 libc.workspace = true
 nonempty-collections.workspace = true
+strum.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
