@@ -1,0 +1,1 @@
+Fail on metadata for an id that is no change: one with no log, branch, or origin log. Archiving, describing, or adding an owner to an unknown change used to succeed and create a log for it, and adding one as a parent added a dangling parent.
