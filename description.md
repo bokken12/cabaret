@@ -1,0 +1,1 @@
+Inline each safeguard's particulars as fields of its Safeguard variant, dropping the per-safeguard structs and their Display impls.
