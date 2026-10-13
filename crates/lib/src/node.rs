@@ -83,6 +83,7 @@ impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> f
     }
 }
 
+// TODO-someday(joel): maybe there's something cleaner than all of these variants?
 /// What [`Cabaret::create`] did.
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Created {
