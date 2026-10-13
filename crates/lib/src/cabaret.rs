@@ -12,11 +12,7 @@ use cabaret_transaction::{
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
     RepoPath, Result, Reviewing, RevisionId, ViewDiff,
-    safeguard::{
-        Allow, ArchivedParent, ArchivedParents, BaseMoves, Conflicted, Empty, ImpermanentParents, NoCommonAncestor,
-        NonOwner, OpenChildren, Ownerless, ParentConflicted, ParentUnreviewed, Parentless, Permanent, RedundantParent,
-        RemovesOthers, Safeguard, Uncommitted, Unendorsed, Unreviewed,
-    },
+    safeguard::{Allow, Safeguard},
 };
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
@@ -326,9 +322,8 @@ impl Cabaret {
             let parents = ctx.metadata(change_id)?.parents()?;
             let before = branch.conflicted_files(&parents)?;
             let added = committed.conflicted_files(&parents)?.difference(&before).cloned().collect();
-            let safeguards = Vec::from_iter(
-                NEBTreeSet::try_from_set(added).map(|files| Safeguard::Conflicted(Conflicted { files })),
-            );
+            let safeguards =
+                Vec::from_iter(NEBTreeSet::try_from_set(added).map(|files| Safeguard::Conflicted { files }));
             allow.check(safeguards)?;
             if workspace.snapshot(pathspecs)? != tree {
                 Err(format!("files changed while committing to {change_id}; commit again"))?;
@@ -431,10 +426,10 @@ impl Cabaret {
             }
             let mut safeguards = Vec::new();
             if let Some(children) = NEBTreeSet::try_from_set(open_children(ctx, change_id)?) {
-                safeguards.push(Safeguard::OpenChildren(OpenChildren { children }));
+                safeguards.push(Safeguard::OpenChildren { children });
             }
             if metadata.permanent {
-                safeguards.push(Safeguard::Permanent(Permanent));
+                safeguards.push(Safeguard::Permanent);
             }
             allow.check(safeguards)?;
             metadata.archived = true;
@@ -454,8 +449,7 @@ impl Cabaret {
                 }
             }
             let safeguards = Vec::from_iter(
-                NEBTreeSet::try_from_set(archived)
-                    .map(|parents| Safeguard::ArchivedParents(ArchivedParents { parents })),
+                NEBTreeSet::try_from_set(archived).map(|parents| Safeguard::ArchivedParents { parents }),
             );
             allow.check(safeguards)?;
             metadata.archived = false;
@@ -577,7 +571,7 @@ impl Cabaret {
             let you = ctx.identity()?;
             let review = metadata.review.get(&you).cloned().unwrap_or_default();
             if !ctx.branch(change_id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
-                allow.check(vec![Safeguard::Unreviewed(Unreviewed { reviewers: NEBTreeSet::new(you.clone()) })])?;
+                allow.check(vec![Safeguard::Unreviewed { reviewers: NEBTreeSet::new(you.clone()) }])?;
             }
             metadata.endorsers.insert(you);
             Ok(())
@@ -615,7 +609,7 @@ impl Cabaret {
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner));
+            let mut safeguards = Vec::from_iter(non_owner(metadata)?);
             if permanent {
                 let mut impermanent = BTreeSet::new();
                 for parent_id in metadata.parents()? {
@@ -626,7 +620,7 @@ impl Cabaret {
                     }
                 }
                 if let Some(parents) = NEBTreeSet::try_from_set(impermanent) {
-                    safeguards.push(Safeguard::ImpermanentParents(ImpermanentParents { parents }));
+                    safeguards.push(Safeguard::ImpermanentParents { parents });
                 }
             }
             allow.check(safeguards)?;
@@ -640,7 +634,7 @@ impl Cabaret {
             if metadata.reviewing == reviewing {
                 return Ok(());
             }
-            allow.check(Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner)))?;
+            allow.check(Vec::from_iter(non_owner(metadata)?))?;
             metadata.reviewing = reviewing;
             Ok(())
         })
@@ -800,12 +794,12 @@ fn land_safeguards(
 ) -> Result<Vec<Safeguard>> {
     let ctx = metadata.ctx();
     let parents = metadata.parents()?;
-    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner));
+    let mut safeguards = Vec::from_iter(non_owner(metadata)?);
     if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
-        safeguards.push(Safeguard::Unreviewed(Unreviewed { reviewers }));
+        safeguards.push(Safeguard::Unreviewed { reviewers });
     }
     if let Some(owners) = NEBTreeSet::try_from_set(metadata.unendorsed()) {
-        safeguards.push(Safeguard::Unendorsed(Unendorsed { owners }));
+        safeguards.push(Safeguard::Unendorsed { owners });
     }
     let parent = ctx.metadata(parent_id)?;
     let grandparents = parent.parents()?;
@@ -813,21 +807,21 @@ fn land_safeguards(
     if !grandparents.is_empty()
         && let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(parent_id)?, &grandparents)?)
     {
-        safeguards.push(Safeguard::ParentUnreviewed(ParentUnreviewed { parent: parent_id.to_owned(), reviewers }));
+        safeguards.push(Safeguard::ParentUnreviewed { parent: parent_id.to_owned(), reviewers });
     }
     match merged {
-        None => safeguards.push(Safeguard::Empty(Empty { parent: parent_id.to_owned() })),
+        None => safeguards.push(Safeguard::Empty { parent: parent_id.to_owned() }),
         Some(conflicts) => {
             let files = branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
             if let Some(files) = NEBTreeSet::try_from_set(files) {
-                safeguards.push(Safeguard::Conflicted(Conflicted { files }));
+                safeguards.push(Safeguard::Conflicted { files });
             }
         }
     }
     if let Some(workspace) = branch.workspace()?
         && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
     {
-        safeguards.push(Safeguard::Uncommitted(Uncommitted { workspace }));
+        safeguards.push(Safeguard::Uncommitted { workspace });
     }
     Ok(safeguards)
 }
@@ -835,11 +829,10 @@ fn land_safeguards(
 /// What changing a change's owners from `before` to `after` risks, done by `you`.
 fn owners_safeguards(you: &Identity, before: &BTreeSet<Identity>, after: &BTreeSet<Identity>) -> Vec<Safeguard> {
     let others: BTreeSet<Identity> = before.difference(after).filter(|owner| *owner != you).cloned().collect();
-    let mut safeguards = Vec::from_iter(
-        NEBTreeSet::try_from_set(others).map(|owners| Safeguard::RemovesOthers(RemovesOthers { owners })),
-    );
+    let mut safeguards =
+        Vec::from_iter(NEBTreeSet::try_from_set(others).map(|owners| Safeguard::RemovesOthers { owners }));
     if after.is_empty() {
-        safeguards.push(Safeguard::Ownerless(Ownerless));
+        safeguards.push(Safeguard::Ownerless);
     }
     safeguards
 }
@@ -849,16 +842,15 @@ fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result
     let ctx = metadata.ctx();
     let mut safeguards = Vec::new();
     if ctx.metadata(added)?.archived && !metadata.archived {
-        safeguards.push(Safeguard::ArchivedParent(ArchivedParent { parent: added.to_owned() }));
+        safeguards.push(Safeguard::ArchivedParent { parent: added.to_owned() });
     }
     for other in metadata.parents.iter().filter(|other| other.as_ref() != added) {
         if ctx.metadata(other)?.is_descendant(added)? {
-            let redundant = RedundantParent { parent: added.to_owned(), descendant: other.clone() };
-            safeguards.push(Safeguard::RedundantParent(redundant));
+            safeguards.push(Safeguard::RedundantParent { parent: added.to_owned(), descendant: other.clone() });
             break;
         }
     }
-    safeguards.extend(no_common_ancestor(metadata)?.map(Safeguard::NoCommonAncestor));
+    safeguards.extend(no_common_ancestor(metadata)?);
     Ok(safeguards)
 }
 
@@ -873,17 +865,17 @@ fn remove_parent_safeguards(
     let (old, new) = (before.parents()?, after.parents()?);
     let branch = ctx.branch(after.id())?;
     if branch.base(&old)? != branch.base(&new)? {
-        safeguards.push(Safeguard::BaseMoves(BaseMoves { removed: removed.to_owned() }));
+        safeguards.push(Safeguard::BaseMoves { removed: removed.to_owned() });
     }
     if new.is_empty() {
-        safeguards.push(Safeguard::Parentless(Parentless));
+        safeguards.push(Safeguard::Parentless);
     }
-    safeguards.extend(no_common_ancestor(after)?.map(Safeguard::NoCommonAncestor));
+    safeguards.extend(no_common_ancestor(after)?);
     Ok(safeguards)
 }
 
 /// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.
-fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<NoCommonAncestor>> {
+fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
     let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
     let mut common: Option<BTreeSet<ChangeId>> = None;
     for parent in &parents {
@@ -893,7 +885,7 @@ fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<NoCommonAncestor
             Some(common) => &common & &ancestors,
         });
     }
-    Ok(common.is_some_and(|common| common.is_empty()).then_some(NoCommonAncestor { parents }))
+    Ok(common.is_some_and(|common| common.is_empty()).then_some(Safeguard::NoCommonAncestor { parents }))
 }
 
 /// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.
@@ -914,9 +906,9 @@ fn rebase_safeguards(
     targets: &BTreeSet<ChangeId>,
 ) -> Result<Vec<Safeguard>> {
     let ctx = metadata.ctx();
-    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(Safeguard::NonOwner));
+    let mut safeguards = Vec::from_iter(non_owner(metadata)?);
     if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
-        safeguards.push(Safeguard::Conflicted(Conflicted { files }));
+        safeguards.push(Safeguard::Conflicted { files });
     }
     for target in targets {
         let parent = ctx.branch(target)?;
@@ -925,15 +917,15 @@ fn rebase_safeguards(
             continue;
         }
         if let Some(files) = NEBTreeSet::try_from_set(parent.conflicted_files(&ctx.metadata(target)?.parents()?)?) {
-            safeguards.push(Safeguard::ParentConflicted(ParentConflicted { parent: target.clone(), files }));
+            safeguards.push(Safeguard::ParentConflicted { parent: target.clone(), files });
         }
     }
     Ok(safeguards)
 }
 
-fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {
+fn non_owner(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
     let you = metadata.ctx().identity()?;
-    Ok((!metadata.owners.contains(&you)).then(|| NonOwner { you, owners: metadata.owners.clone() }))
+    Ok((!metadata.owners.contains(&you)).then(|| Safeguard::NonOwner { you, owners: metadata.owners.clone() }))
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

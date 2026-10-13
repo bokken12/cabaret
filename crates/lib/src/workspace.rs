@@ -7,7 +7,7 @@ use std::{
 use cabaret_transaction::{BranchOp, Head, Status, Workspace, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, Result, WorkspaceId, WorkspaceIdRef,
-    safeguard::{Allow, Safeguard, SafeguardKind, Uncommitted},
+    safeguard::{Allow, Safeguard, SafeguardKind},
 };
 use gix::bstr::ByteSlice;
 
@@ -189,8 +189,7 @@ impl Cabaret {
         let switch = |workspace: &mut Workspace<'_>| {
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
             if workspace.status()? == Status::Modified {
-                let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
-                allow.check(vec![Safeguard::Uncommitted(uncommitted)])?;
+                allow.check(vec![Safeguard::Uncommitted { workspace: workspace_id.into_owned() }])?;
             }
             workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
             workspace.head = Head::Change(change_id.to_owned());
@@ -230,7 +229,7 @@ fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguar
     Ok(match workspace.status()? {
         Status::Clean => Vec::new(),
         Status::Untracked | Status::Modified => {
-            vec![Safeguard::Uncommitted(Uncommitted { workspace: workspace.id().into_owned() })]
+            vec![Safeguard::Uncommitted { workspace: workspace.id().into_owned() }]
         }
     })
 }

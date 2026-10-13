@@ -92,49 +92,68 @@ impl fmt::Display for SafeguardKind {
 /// Any action's safeguard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Safeguard {
-    ArchivedParent(ArchivedParent),
-    ArchivedParents(ArchivedParents),
-    BaseMoves(BaseMoves),
-    Conflicted(Conflicted),
-    Empty(Empty),
-    ImpermanentParents(ImpermanentParents),
-    NoCommonAncestor(NoCommonAncestor),
-    NonOwner(NonOwner),
-    OpenChildren(OpenChildren),
-    Ownerless(Ownerless),
-    ParentConflicted(ParentConflicted),
-    Parentless(Parentless),
-    ParentUnreviewed(ParentUnreviewed),
-    Permanent(Permanent),
-    RedundantParent(RedundantParent),
-    RemovesOthers(RemovesOthers),
-    Uncommitted(Uncommitted),
-    Unendorsed(Unendorsed),
-    Unreviewed(Unreviewed),
+    /// An archived parent, which working out the change's parents skips.
+    ArchivedParent { parent: ChangeId },
+    /// Declared parents that are archived, so the change would land past them, taking in their work.
+    ArchivedParents { parents: NEBTreeSet<ChangeId> },
+    /// Removing a parent moves the change's base back, taking the parent's work into its diff.
+    BaseMoves { removed: ChangeId },
+    /// Files would be left holding conflict markers.
+    Conflicted { files: NEBTreeSet<RepoPath> },
+    /// The change adds nothing to its parent.
+    Empty { parent: ChangeId },
+    /// Parents that will land and be archived, leaving a permanent change nowhere lasting to land.
+    ImpermanentParents { parents: NEBTreeSet<ChangeId> },
+    /// The change's parents share no ancestor, so they could never coalesce into one to land into.
+    NoCommonAncestor { parents: NEBTreeSet<ChangeId> },
+    /// You do not own the change.
+    NonOwner { you: Identity, owners: BTreeSet<Identity> },
+    /// Open changes still land into the change, and would move to land past it.
+    OpenChildren { children: NEBTreeSet<ChangeId> },
+    /// The change would be left with no owners to shepherd it.
+    Ownerless,
+    /// A parent to be merged in holds conflict markers, which would come along.
+    ParentConflicted { parent: ChangeId, files: NEBTreeSet<RepoPath> },
+    /// The change would be left with no parent to land into.
+    Parentless,
+    /// Owners of the parent have files of it left to review, which landing would bury in its diff.
+    ParentUnreviewed { parent: ChangeId, reviewers: NEBTreeSet<Identity> },
+    /// The change was marked permanent, meant never to be archived.
+    Permanent,
+    /// A parent that is already an ancestor of another, which working out the change's parents skips.
+    RedundantParent { parent: ChangeId, descendant: ChangeId },
+    /// Owners other than you would be removed, and may lose track of the change.
+    RemovesOthers { owners: NEBTreeSet<Identity> },
+    /// A workspace has changes not yet committed.
+    Uncommitted { workspace: WorkspaceId },
+    /// Owners have not endorsed the change.
+    Unendorsed { owners: NEBTreeSet<Identity> },
+    /// Owners have files of the change left to review.
+    Unreviewed { reviewers: NEBTreeSet<Identity> },
 }
 
 impl Safeguard {
     pub fn kind(&self) -> SafeguardKind {
         match self {
-            Self::ArchivedParent(_) => SafeguardKind::ArchivedParent,
-            Self::ArchivedParents(_) => SafeguardKind::ArchivedParents,
-            Self::BaseMoves(_) => SafeguardKind::BaseMoves,
-            Self::Conflicted(_) => SafeguardKind::Conflicted,
-            Self::Empty(_) => SafeguardKind::Empty,
-            Self::ImpermanentParents(_) => SafeguardKind::ImpermanentParents,
-            Self::NoCommonAncestor(_) => SafeguardKind::NoCommonAncestor,
-            Self::NonOwner(_) => SafeguardKind::NonOwner,
-            Self::OpenChildren(_) => SafeguardKind::OpenChildren,
-            Self::Ownerless(_) => SafeguardKind::Ownerless,
-            Self::ParentConflicted(_) => SafeguardKind::ParentConflicted,
-            Self::Parentless(_) => SafeguardKind::Parentless,
-            Self::ParentUnreviewed(_) => SafeguardKind::ParentUnreviewed,
-            Self::Permanent(_) => SafeguardKind::Permanent,
-            Self::RedundantParent(_) => SafeguardKind::RedundantParent,
-            Self::RemovesOthers(_) => SafeguardKind::RemovesOthers,
-            Self::Uncommitted(_) => SafeguardKind::Uncommitted,
-            Self::Unendorsed(_) => SafeguardKind::Unendorsed,
-            Self::Unreviewed(_) => SafeguardKind::Unreviewed,
+            Self::ArchivedParent { .. } => SafeguardKind::ArchivedParent,
+            Self::ArchivedParents { .. } => SafeguardKind::ArchivedParents,
+            Self::BaseMoves { .. } => SafeguardKind::BaseMoves,
+            Self::Conflicted { .. } => SafeguardKind::Conflicted,
+            Self::Empty { .. } => SafeguardKind::Empty,
+            Self::ImpermanentParents { .. } => SafeguardKind::ImpermanentParents,
+            Self::NoCommonAncestor { .. } => SafeguardKind::NoCommonAncestor,
+            Self::NonOwner { .. } => SafeguardKind::NonOwner,
+            Self::OpenChildren { .. } => SafeguardKind::OpenChildren,
+            Self::Ownerless => SafeguardKind::Ownerless,
+            Self::ParentConflicted { .. } => SafeguardKind::ParentConflicted,
+            Self::Parentless => SafeguardKind::Parentless,
+            Self::ParentUnreviewed { .. } => SafeguardKind::ParentUnreviewed,
+            Self::Permanent => SafeguardKind::Permanent,
+            Self::RedundantParent { .. } => SafeguardKind::RedundantParent,
+            Self::RemovesOthers { .. } => SafeguardKind::RemovesOthers,
+            Self::Uncommitted { .. } => SafeguardKind::Uncommitted,
+            Self::Unendorsed { .. } => SafeguardKind::Unendorsed,
+            Self::Unreviewed { .. } => SafeguardKind::Unreviewed,
         }
     }
 }
@@ -142,25 +161,50 @@ impl Safeguard {
 impl fmt::Display for Safeguard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ArchivedParent(particulars) => particulars.fmt(f),
-            Self::ArchivedParents(particulars) => particulars.fmt(f),
-            Self::BaseMoves(particulars) => particulars.fmt(f),
-            Self::Conflicted(particulars) => particulars.fmt(f),
-            Self::Empty(particulars) => particulars.fmt(f),
-            Self::ImpermanentParents(particulars) => particulars.fmt(f),
-            Self::NoCommonAncestor(particulars) => particulars.fmt(f),
-            Self::NonOwner(particulars) => particulars.fmt(f),
-            Self::OpenChildren(particulars) => particulars.fmt(f),
-            Self::Ownerless(particulars) => particulars.fmt(f),
-            Self::ParentConflicted(particulars) => particulars.fmt(f),
-            Self::Parentless(particulars) => particulars.fmt(f),
-            Self::ParentUnreviewed(particulars) => particulars.fmt(f),
-            Self::Permanent(particulars) => particulars.fmt(f),
-            Self::RedundantParent(particulars) => particulars.fmt(f),
-            Self::RemovesOthers(particulars) => particulars.fmt(f),
-            Self::Uncommitted(particulars) => particulars.fmt(f),
-            Self::Unendorsed(particulars) => particulars.fmt(f),
-            Self::Unreviewed(particulars) => particulars.fmt(f),
+            Self::ArchivedParent { parent } => write!(f, "{parent} is archived, so it would be skipped"),
+            Self::ArchivedParents { parents } => {
+                let verb = if parents.len().get() == 1 { "is" } else { "are" };
+                write!(f, "{} {verb} archived, so its diff would take in the archived work", joined(parents))
+            }
+            Self::BaseMoves { removed } => write!(f, "its diff would take in the work of {removed}"),
+            Self::Conflicted { files } => write!(f, "conflicts in {}", joined(files)),
+            Self::Empty { parent } => write!(f, "it adds nothing to {parent}"),
+            Self::ImpermanentParents { parents } => {
+                let verb = if parents.len().get() == 1 { "is" } else { "are" };
+                write!(f, "{} {verb} not permanent", joined(parents))
+            }
+            Self::NoCommonAncestor { parents } => {
+                write!(f, "{} share no ancestor, so it could never land", joined(parents))
+            }
+            Self::NonOwner { you, owners } => match owners.is_empty() {
+                true => write!(f, "you ({you}) are not an owner (it has no owners)"),
+                false => write!(f, "you ({you}) are not an owner (owners: {})", joined(owners)),
+            },
+            Self::OpenChildren { children } => {
+                let verb = if children.len().get() == 1 { "lands" } else { "land" };
+                write!(f, "{} still {verb} into it", joined(children))
+            }
+            Self::Ownerless => f.write_str("it would have no owners"),
+            Self::ParentConflicted { parent, files } => write!(f, "{parent} has conflicts in {}", joined(files)),
+            Self::Parentless => f.write_str("it would have nowhere to land"),
+            Self::ParentUnreviewed { parent, reviewers } => {
+                let verb = if reviewers.len().get() == 1 { "has" } else { "have" };
+                write!(f, "{} {verb} files of {parent} left to review", joined(reviewers))
+            }
+            Self::Permanent => f.write_str("it is permanent"),
+            Self::RedundantParent { parent, descendant } => {
+                write!(f, "{parent} is already an ancestor of {descendant}, so it would be skipped")
+            }
+            Self::RemovesOthers { owners } => write!(f, "{} would no longer own it", joined(owners)),
+            Self::Uncommitted { workspace } => write!(f, "workspace {workspace} has uncommitted changes"),
+            Self::Unendorsed { owners } => {
+                let verb = if owners.len().get() == 1 { "has" } else { "have" };
+                write!(f, "{} {verb} not endorsed it", joined(owners))
+            }
+            Self::Unreviewed { reviewers } => {
+                let verb = if reviewers.len().get() == 1 { "has" } else { "have" };
+                write!(f, "{} {verb} files left to review", joined(reviewers))
+            }
         }
     }
 }
@@ -189,228 +233,4 @@ impl FromIterator<SafeguardKind> for Allow {
 /// `a, b, c`.
 fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
     items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
-}
-
-/// An archived parent, which working out the change's parents skips.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArchivedParent {
-    pub parent: ChangeId,
-}
-
-impl fmt::Display for ArchivedParent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} is archived, so it would be skipped", self.parent)
-    }
-}
-
-/// Declared parents that are archived, so the change would land past them, taking in their work.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArchivedParents {
-    pub parents: NEBTreeSet<ChangeId>,
-}
-
-impl fmt::Display for ArchivedParents {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
-        write!(f, "{} {verb} archived, so its diff would take in the archived work", joined(&self.parents))
-    }
-}
-/// Removing a parent moves the change's base back, taking the parent's work into its diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BaseMoves {
-    pub removed: ChangeId,
-}
-
-impl fmt::Display for BaseMoves {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "its diff would take in the work of {}", self.removed)
-    }
-}
-
-/// Files would be left holding conflict markers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Conflicted {
-    pub files: NEBTreeSet<RepoPath>,
-}
-
-impl fmt::Display for Conflicted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "conflicts in {}", joined(&self.files)) }
-}
-
-/// The change adds nothing to its parent.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Empty {
-    pub parent: ChangeId,
-}
-
-impl fmt::Display for Empty {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "it adds nothing to {}", self.parent) }
-}
-
-/// Parents that will land and be archived, leaving a permanent change nowhere lasting to land.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImpermanentParents {
-    pub parents: NEBTreeSet<ChangeId>,
-}
-
-impl fmt::Display for ImpermanentParents {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
-        write!(f, "{} {verb} not permanent", joined(&self.parents))
-    }
-}
-
-/// The change's parents share no ancestor, so they could never coalesce into one to land into.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NoCommonAncestor {
-    pub parents: NEBTreeSet<ChangeId>,
-}
-
-impl fmt::Display for NoCommonAncestor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} share no ancestor, so it could never land", joined(&self.parents))
-    }
-}
-
-/// You do not own the change.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NonOwner {
-    pub you: Identity,
-    pub owners: BTreeSet<Identity>,
-}
-
-impl fmt::Display for NonOwner {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.owners.is_empty() {
-            true => write!(f, "you ({}) are not an owner (it has no owners)", self.you),
-            false => write!(f, "you ({}) are not an owner (owners: {})", self.you, joined(&self.owners)),
-        }
-    }
-}
-
-/// Open changes still land into the change, and would move to land past it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenChildren {
-    pub children: NEBTreeSet<ChangeId>,
-}
-
-impl fmt::Display for OpenChildren {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.children.len().get() == 1 { "lands" } else { "land" };
-        write!(f, "{} still {verb} into it", joined(&self.children))
-    }
-}
-
-/// The change would be left with no owners to shepherd it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ownerless;
-
-impl fmt::Display for Ownerless {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it would have no owners") }
-}
-
-/// A parent to be merged in holds conflict markers, which would come along.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParentConflicted {
-    pub parent: ChangeId,
-    pub files: NEBTreeSet<RepoPath>,
-}
-
-impl fmt::Display for ParentConflicted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} has conflicts in {}", self.parent, joined(&self.files))
-    }
-}
-
-/// The change would be left with no parent to land into.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Parentless;
-
-impl fmt::Display for Parentless {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it would have nowhere to land") }
-}
-
-/// Owners of the parent have files of it left to review, which landing would bury in its diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParentUnreviewed {
-    pub parent: ChangeId,
-    pub reviewers: NEBTreeSet<Identity>,
-}
-
-impl fmt::Display for ParentUnreviewed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.reviewers.len().get() == 1 { "has" } else { "have" };
-        write!(f, "{} {verb} files of {} left to review", joined(&self.reviewers), self.parent)
-    }
-}
-
-/// The change was marked permanent, meant never to be archived.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Permanent;
-
-impl fmt::Display for Permanent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it is permanent") }
-}
-
-/// A parent that is already an ancestor of another, which working out the change's parents skips.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RedundantParent {
-    pub parent: ChangeId,
-    pub descendant: ChangeId,
-}
-
-impl fmt::Display for RedundantParent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} is already an ancestor of {}, so it would be skipped", self.parent, self.descendant)
-    }
-}
-
-/// Owners other than you would be removed, and may lose track of the change.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemovesOthers {
-    pub owners: NEBTreeSet<Identity>,
-}
-
-impl fmt::Display for RemovesOthers {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} would no longer own it", joined(&self.owners))
-    }
-}
-
-/// A workspace has changes not yet committed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Uncommitted {
-    pub workspace: WorkspaceId,
-}
-
-impl fmt::Display for Uncommitted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "workspace {} has uncommitted changes", self.workspace)
-    }
-}
-
-/// Owners have not endorsed the change.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unendorsed {
-    pub owners: NEBTreeSet<Identity>,
-}
-
-impl fmt::Display for Unendorsed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.owners.len().get() == 1 { "has" } else { "have" };
-        write!(f, "{} {verb} not endorsed it", joined(&self.owners))
-    }
-}
-
-/// Owners have files of the change left to review.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unreviewed {
-    pub reviewers: NEBTreeSet<Identity>,
-}
-
-impl fmt::Display for Unreviewed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let verb = if self.reviewers.len().get() == 1 { "has" } else { "have" };
-        write!(f, "{} {verb} files left to review", joined(&self.reviewers))
-    }
 }
