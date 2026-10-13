@@ -1,0 +1,1 @@
+Derive SafeguardKind from Safeguard with strum's EnumDiscriminants, replacing the hand-written kind enum, its ALL list, names, and Safeguard::kind.
