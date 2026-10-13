@@ -1,0 +1,1 @@
+Refuse creating a change on an archived parent unless archived-parent is allowed, as adding one as a parent already does. The CLI takes --allow on change create, and VS Code asks before creating a child anyway.
