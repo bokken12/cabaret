@@ -1,5 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/change.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/lib.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/main.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/workspace.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/tests/safeguards.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/cli/tests/safeguards.rs","revision":"91f60297cbe037c6106bb23f61e2708555ea59e0"}
