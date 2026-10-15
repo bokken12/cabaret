@@ -100,7 +100,7 @@ However, the linear structure of GitHub's stacks is unnecessarily limiting here.
 
 Cabaret's changes natively accommodate all these different concurrent workflows, and are designed to push best practices and minimize the friction of working on multiple things at once. By default, changes live in dedicated workspaces so agents on the same machine don't fight over shared resources, and nudge you to clean them up when they're no longer needed.
 
-Under the hood, all Cabaret metadata consists of atomic transactions on append-only logs, and all git operations can be append-only too since merges don't confuse Cabaret's review obligations the way they do GitHub's and Cabaret's change graph and change log neatly substitute for a manicured git commit graph. Combined, this leads to a system with fewer conflicts, more automatic resolution, and no need to strictly enforce one engineer per dev branch to stay out of trouble.
+Under the hood, all Cabaret metadata consists of atomic transactions on append-only logs. A git operations can be append-only too, since merges don't confuse Cabaret's review obligations the way they do GitHub's and Cabaret's change graph and change log neatly substitute for a manicured git commit graph. Combined, this leads to a system with fewer conflicts, more automatic resolution, and no need to strictly enforce one engineer per dev branch to stay out of trouble.
 
 ### Conclusion & Disclaimers
 
