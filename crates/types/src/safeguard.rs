@@ -23,9 +23,10 @@ use crate::{
     cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))
 )]
 pub enum Safeguard {
-    /// Archived parent of a non-archived change (requires fixing)
+    /// Archived parent of a non-archived change (parent would be included in diff)
     ArchivedParents { parents: NEBTreeSet<ChangeId> },
-    /// Removing a parent moves the change's base back, taking the parent's work into its diff.
+    // TODO(joel for claude): `removed: NEBTreeSet<ChangeId>` will be necessary for `cab parents set`
+    /// Removing a parent moves the change's base back (parent would be included in diff)
     BaseMoves { removed: ChangeId },
     /// Files would be left holding conflict markers.
     Conflicted { files: NEBTreeSet<RepoPath> },
@@ -33,11 +34,12 @@ pub enum Safeguard {
     Empty { parent: ChangeId },
     /// Parents that will land and be archived, leaving a permanent change nowhere lasting to land.
     ImpermanentParents { parents: NEBTreeSet<ChangeId> },
+    // TODO-someday(joel): perhaps this should be made impossible by inserting a trivial ancestor?
     /// The change's parents share no ancestor, so they could never coalesce into one to land into.
     NoCommonAncestor { parents: NEBTreeSet<ChangeId> },
     /// You do not own the change.
     NonOwner { you: Identity, owners: BTreeSet<Identity> },
-    /// Open changes still land into the change, and would move to land past it.
+    /// A parent should not be archived while its children are still open
     OpenChildren { children: NEBTreeSet<ChangeId> },
     /// The change would be left with no owners to shepherd it.
     Ownerless,
@@ -45,19 +47,20 @@ pub enum Safeguard {
     ParentConflicted { parent: ChangeId, files: NEBTreeSet<RepoPath> },
     /// The change would be left with no parent to land into.
     Parentless,
-    /// Owners of the parent have files of it left to review, which landing would bury in its diff.
+    /// Parent has outstanding review obligations, such that landing would duplicate review
     ParentUnreviewed { parent: ChangeId, reviewers: NEBTreeSet<Identity> },
     /// The change was marked permanent, meant never to be archived.
     Permanent,
-    /// A parent that is already an ancestor of another, which working out the change's parents skips.
+    // TODO(joel for claude): make this the dominating and dominated `NEBTreeSet`s?
+    /// Adding a parent that is already an ancestor of another
     RedundantParent { parent: ChangeId, descendant: ChangeId },
     /// Owners other than you would be removed, and may lose track of the change.
     RemovesOthers { owners: NEBTreeSet<Identity> },
-    /// A workspace has changes not yet committed.
+    /// A workspace has changes not yet committed, which deleting it would forget.
     Uncommitted { workspace: WorkspaceId },
-    /// Owners have not endorsed the change.
+    /// Owners have not endorsed the change, so it is not ready to land.
     Unendorsed { owners: NEBTreeSet<Identity> },
-    /// Owners have files of the change left to review.
+    /// Review obligations have not been satisfied, so it is not ready to land.
     Unreviewed { reviewers: NEBTreeSet<Identity> },
 }
 
@@ -67,6 +70,8 @@ fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
 }
 
 impl fmt::Display for Safeguard {
+    // TODO-someday(joel): maybe remove all theverb complexity and just write things like
+    // "owners not yet endorsed: {owners}" regardless of plurality
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ArchivedParents { parents } => {
