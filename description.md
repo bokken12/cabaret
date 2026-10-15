@@ -1,0 +1,1 @@
+License Cabaret under MIT OR Apache-2.0, the Rust ecosystem's customary dual license: LICENSE-MIT and LICENSE-APACHE at the root, with the SPDX expression on every crate and package manifest.
