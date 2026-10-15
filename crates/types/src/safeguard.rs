@@ -63,6 +63,11 @@ pub enum Safeguard {
     Unreviewed { reviewers: NEBTreeSet<Identity> },
 }
 
+/// `a, b, c`.
+fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
+    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
+}
+
 impl fmt::Display for Safeguard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -133,9 +138,4 @@ impl Allow {
 
 impl FromIterator<SafeguardKind> for Allow {
     fn from_iter<I: IntoIterator<Item = SafeguardKind>>(kinds: I) -> Self { Self(kinds.into_iter().collect()) }
-}
-
-/// `a, b, c`.
-fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
-    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
