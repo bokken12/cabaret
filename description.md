@@ -1,0 +1,1 @@
+Add installation and getting-started guide to README
