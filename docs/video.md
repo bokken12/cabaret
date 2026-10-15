@@ -72,7 +72,7 @@ I think there's even an argument of sorts that essentially the world is outgrowi
 
 The next git platform shouldn't be another walled garden, locking you into a specific hosting provider. Instead, it should fit natively within the git protocol and data, so that you can pick up your GitHub repository and move it to Artifacts, Origin, or Codeberg without losing collaborative features like PRs. The next git platform should be Cabaret.
 
-When Linus Torvalds first wrote git, collaboration happened outside git itself: patches were emailed, discussed, and reviewed on mailing lists. For other users, this tooling naturally grew out of the remote hosting platforms like GitHub, whose existence made coordination approachable.
+When Linus Torvalds first wrote git, collaboration happened outside git itself: patches were emailed, discussed, and reviewed on mailing lists. Hosting platforms like GitHub later made that coordination approachable for everyone, but they kept it in their own databases.
 
 Cabaret's thesis is that agents have grown past the point of being treated like a tool that you wield carefully with your full attention, and into real collaborators that can work independently before raising the results to your attention. This means the same collaborative tooling that's good for humans is also good for agents, and needs to be first-class even for projects where you are the only human participant.
 
@@ -80,21 +80,21 @@ Cabaret's thesis is that agents have grown past the point of being treated like 
 
 Collaboration with others introduces many challenges. You need to align on what you want to build, and how to structure it. You need to maintain understanding of the system as a whole, even when there are large parts of it you didn't personally write. Luckily, these are a class of problem that has been faced many times before: by human agents working at tech companies.
 
-Code review has been central to resolving these problems: keeping the relevant parties in agreement and in the loop for key decisions. Cabaret is, at its core, a code review tool, and takes direct inspiration from the best industry equivalents.
+Code review has been central to resolving these problems: keeping the relevant parties in agreement and in the loop for key decisions. Cabaret is, at its core, a code review tool, and takes direct inspiration from the best industry equivalents like Critique, Differential, and Iron.
 
 However, as LLMs have made producing code faster and easier than ever before, existing code review processes have struggled to keep up. As reviewing agent output is quickly coming to dominate the development experience, we need tools to help us move faster and more reliably.
 
-Cabaret moves the review experience out of GitHub's clunky website and directly into the IDE where you're already fastest. Its easy-to-learn UI elements all push you towards the equivalent keybindings, so that you can race through code review without touching your mouse, just like vim sped up writing code. You can even review offline!
+Cabaret moves the review experience out of GitHub's clunky website and directly into the IDE where you're already fastest. Its easy-to-learn UI elements all push you towards the equivalent keybindings, so that you can race through code review without touching your mouse, just like vim sped up writing code.
 
 Review comments in Cabaret are written inline with the code, which means that making a trivial fix yourself follows the same uniform workflow as leaving feedback. Plus, since you're right in the editor, it's easy for you to jump to definitions or gather other context you need to understand changes. The goal is to return you to being an active participant and co-author, rather than peering at your project through a glass pane.
 
-Rather than a single "approve" button, Cabaret tracks the versions of code you've reviewed. That means when you're iterating with your agents on a feature, you'll see only what changed since your last review, rather than needing to hunt for the crucial fix in a larger change. Cabaret lets you specify varying scrutinies so you only review critical files, and understands workflows like rebasing which won't require duplicate review.
+Rather than a single "approve" button, Cabaret tracks the versions of code you've reviewed. That means when you're iterating with your agents on a feature, you'll see only what changed since your last review, rather than needing to hunt for the crucial fix in a larger change. Cabaret lets you specify varying scrutiny levels so you only review critical files, and understands workflows like rebasing which won't require duplicate review.
 
 ### Stacking & Concurrency
 
-However, even with all these niceties, it can still be possible for review processes to feel like blockers which slow things down, especially with lots of people or agents performing concurrent changes. An important innovation here, that GitHub has only recently picked up on, is "stacked" PRs, which Cabaret would call stacked "changes".
+Even with all these niceties, it can still be possible for review processes to feel like blockers which slow things down, especially with lots of people or agents performing concurrent changes. An important innovation here, that GitHub has only recently picked up on, is "stacked" PRs, which Cabaret would call stacked "changes".
 
-One commonly noted feature of stacked changes that can help with review is the ability to use the pieces to tell a story: separating out higher and lower scrutiny items, or semantically distinct parts. However, I would claim that the more important primitive here is that a change should stack on another when it depends on or builds upon that work. In this manner, an agent can continue making progress even while their early work is still in review.
+One commonly noted feature of stacked changes that can help with review is the ability to use the pieces to tell a story: separating out higher and lower scrutiny items, or semantically distinct parts. Yet, I would claim that the more important primitive here is that a change can stack on another when it depends on or builds upon that work. In this manner, an agent can continue making progress even while their early work is still in review.
 
 However, the linear structure of GitHub's stacks is unnecessarily limiting here. It should be possible for multiple agents to do follow-ups depending on the same work without needing to interact with each other, forming a tree structure. Perhaps they are even prototyping a few distinct designs for you to compare in the review process and choose the best of. It should even be possible for a change to depend on two or more other pieces of work, perhaps integrating them together, forming a DAG.
 
@@ -104,6 +104,6 @@ Under the hood, all Cabaret metadata consists of atomic transactions on append-o
 
 ### Conclusion & Disclaimers
 
-Cabaret is built in Rust on top of a git backend via Gitoxide. It is heavily inspired by projects like Jujutsu and Iron, but unlike these projects where a lot of the special sauce only works locally or with an extra server for metadata, it truly all translates down to git, getting the same first-class experience across devices or when working with others who have not adopted it.
+Cabaret is built in Rust on top of a git backend via Gitoxide, and everything, including review state and change metadata, lives in git. That means it works with any forge, and you can incrementally adopt while your teammates stick to what they're familiar with.
 
 Cabaret is currently available as a CLI (for agents) and a VSCode extension (for humans). Cabaret is under active development and still pre-1.0, so does not yet promise no breaking changes. More details on the nuances of getting review state and similar right are available in the docs. I hope that Cabaret and its ideas can help make better interfaces to version control and code review available for everyone!
