@@ -13,6 +13,7 @@ pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
     Endorse { endorser: Identity },
+    // TODO-someday(joel): `files: NEBTreeSet<RepoPath>`
     Forget { reviewer: Identity, file: RepoPath },
     Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
