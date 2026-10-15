@@ -1,0 +1,12 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"LICENSE-APACHE","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"LICENSE-MIT","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/Cargo.toml","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"node/package.json","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"package.json","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/package.json","revision":"bcbada8b361b91a181866167f6c695b21d1d1724"}
