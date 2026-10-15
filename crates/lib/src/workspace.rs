@@ -86,7 +86,8 @@ impl Cabaret {
     }
 
     /// Create a workspace at the default location on `change_id`, a branch yet to have its first
-    /// commit, and return where it was made.
+    /// commit, and return where it was made. Only for a repository nothing else is using yet: with
+    /// no branch to declare, no transaction guards it.
     pub fn workspace_add_orphan(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
         let path = self.default_workspace_path(change_id)?;
         self.store.query(|ctx| Workspace::new(ctx, &path, Head::Change(change_id.to_owned()))?.create_orphan())?;
