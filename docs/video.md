@@ -100,10 +100,10 @@ However, the linear structure of GitHub's stacks is unnecessarily limiting here.
 
 Cabaret's changes natively accommodate all these different concurrent workflows, and are designed to push best practices and minimize the friction of working on multiple things at once. By default, changes live in dedicated workspaces so agents on the same machine don't fight over shared resources, and nudge you to clean them up when they're no longer needed.
 
-Under the hood, all Cabaret metadata consists of atomic transactions on append-only logs. A git operations can be append-only too, since merges don't confuse Cabaret's review obligations the way they do GitHub's and Cabaret's change graph and change log neatly substitute for a manicured git commit graph. Combined, this leads to a system with fewer conflicts, more automatic resolution, and no need for conventions like one engineer per branch to stay out of trouble.
+Under the hood, all Cabaret metadata consists of atomic transactions on append-only logs. Git operations can be append-only too, since Cabaret's change graph and change log neatly substitute for a manicured git commit history, and merges don't confuse Cabaret's review obligations the way they do GitHub's. Combined, this leads to a system with fewer conflicts, more automatic resolution, and no need for conventions like one engineer per branch to stay out of trouble.
 
 ### Conclusion & Disclaimers
 
 Cabaret is built in Rust on top of a git backend via Gitoxide, and everything, including review state and change metadata, lives in git. That means it works with any forge or even offline, and you can incrementally adopt while your teammates stick to what they're familiar with.
 
-Cabaret is under active development and still pre-1.0, so does not yet promise no breaking changes. Cabaret is currently available as a CLI (for agents) and a VSCode extension (for humans). More details on the nuances of getting review state and similar right are available in the docs. I hope that Cabaret and its ideas can help make better interfaces to version control and code review available for everyone!
+Cabaret is under active development and still pre-1.0, so expect some breaking changes. Cabaret is currently available as a CLI (for agents) and a VSCode extension (for humans). More details on the nuances of getting review state and similar right are available in the docs. I hope that Cabaret and its ideas can help make better interfaces to version control and code review available for everyone!
