@@ -1,6 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"README.md","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/lib.rs","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/workspace.rs","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/layout.rs","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/workspace.rs","revision":"7464b1fe5c87f3737c753b66ba462b163e12f3a6"}
+{"action":"set-reviewing","reviewing":"owners"}
