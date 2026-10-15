@@ -1,1 +1,1 @@
-{"action":"set-reviewing","reviewing":"owners"}
+{"action":"mark","reviewer":"me@joel.place","file":"README.md","revision":"c3bc2fb790153c3fa2ec092eca18c963c0f6235c"}
