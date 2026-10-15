@@ -15,7 +15,7 @@ use cabaret_types::{
     safeguard::{Allow, Safeguard},
 };
 use jiff::Zoned;
-use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NonEmptyIterator, nebts};
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
 /// change, as the repository's own: git commands work from it and nothing else shares it.
@@ -273,7 +273,7 @@ impl Cabaret {
             let mut safeguards = Vec::new();
             for parent_id in parent_ids {
                 if ctx.metadata(parent_id)?.archived {
-                    safeguards.push(Safeguard::ArchivedParent { parent: parent_id.clone() });
+                    safeguards.push(Safeguard::ArchivedParents { parents: nebts![parent_id.clone()] });
                 }
             }
             allow.check(safeguards)?;
@@ -856,7 +856,7 @@ fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result
     let ctx = metadata.ctx();
     let mut safeguards = Vec::new();
     if ctx.metadata(added)?.archived && !metadata.archived {
-        safeguards.push(Safeguard::ArchivedParent { parent: added.to_owned() });
+        safeguards.push(Safeguard::ArchivedParents { parents: nebts![added.to_owned()] });
     }
     for other in metadata.parents.iter().filter(|other| other.as_ref() != added) {
         if ctx.metadata(other)?.is_descendant(added)? {

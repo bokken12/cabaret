@@ -23,9 +23,7 @@ use crate::{
     cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))
 )]
 pub enum Safeguard {
-    /// An archived parent, which working out the change's parents skips.
-    ArchivedParent { parent: ChangeId },
-    /// Declared parents that are archived, so the change would land past them, taking in their work.
+    /// Archived parent of a non-archived change (requires fixing)
     ArchivedParents { parents: NEBTreeSet<ChangeId> },
     /// Removing a parent moves the change's base back, taking the parent's work into its diff.
     BaseMoves { removed: ChangeId },
@@ -71,10 +69,9 @@ fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
 impl fmt::Display for Safeguard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ArchivedParent { parent } => write!(f, "{parent} is archived, so it would be skipped"),
             Self::ArchivedParents { parents } => {
                 let verb = if parents.len().get() == 1 { "is" } else { "are" };
-                write!(f, "{} {verb} archived, so its diff would take in the archived work", joined(parents))
+                write!(f, "{} {verb} archived, so should not have unarchived children", joined(parents))
             }
             Self::BaseMoves { removed } => write!(f, "its diff would take in the work of {removed}"),
             Self::Conflicted { files } => write!(f, "conflicts in {}", joined(files)),

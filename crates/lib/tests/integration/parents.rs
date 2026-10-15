@@ -226,7 +226,7 @@ fn archived_parent_refuses_unless_allowed() {
         "done",
         &Allow::default(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::ArchivedParent]);
+    let allow = Allow::from_iter([SafeguardKind::ArchivedParents]);
     expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", &allow));
 }
 
