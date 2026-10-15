@@ -1,0 +1,1 @@
+cab init checks out HEAD's branch as the project directory's first workspace: the default branch of a clone, or an orphan on an empty repository's unborn branch. Prints the workspace's path, and the README's getting-started uses it.
