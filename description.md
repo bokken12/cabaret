@@ -1,0 +1,1 @@
+Note that cab init --from a local path dies of the same SIGPIPE as fetch.
