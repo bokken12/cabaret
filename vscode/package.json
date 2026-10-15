@@ -3,6 +3,7 @@
   "displayName": "Cabaret",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT OR Apache-2.0",
   "description": "Diff-based in-editor code review",
   "categories": [
     "Other"

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
 
 # TODO-someday(joel): move napi to separate crate, cdylib adds 150ms to build
 [lib]
