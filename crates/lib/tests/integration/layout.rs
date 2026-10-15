@@ -1,5 +1,6 @@
-//! Making repositories: empty ones and clones in an empty project directory, with room for one
-//! workspace per change, and empty ones in a directory with contents, as its main workspace.
+//! Making repositories: empty ones and clones in an empty project directory, with HEAD's branch
+//! checked out as the first of one workspace per change, and empty ones in a directory with
+//! contents, as its main workspace.
 
 use std::fs;
 
@@ -7,13 +8,13 @@ use cabaret_lib::Cabaret;
 use expect_test::expect;
 
 use super::{
-    fixture::{Fixture, id, open_cabaret, open_repo, worktree},
+    fixture::{Fixture, open_cabaret, open_repo, worktree},
     workspace::two_changes,
 };
 
 fn workspaces(cabaret: &Cabaret) -> String { format!("{:?}", cabaret.workspaces().unwrap()) }
 
-fn error(result: cabaret_lib::Result<()>) -> String { format!("{:?}", result.unwrap_err()) }
+fn error<T: std::fmt::Debug>(result: cabaret_lib::Result<T>) -> String { format!("{:?}", result.unwrap_err()) }
 
 /// Commit an empty tree as `HEAD`'s first commit in the workspace at `path`, as a user would.
 fn first_commit(path: &std::path::Path) {
@@ -36,19 +37,28 @@ fn first_commit(path: &std::path::Path) {
 }
 
 #[test]
-fn init_makes_empty_project_directory() {
+fn init_makes_project_directory_with_orphan_workspace() {
     let fixture = Fixture::new();
-    Cabaret::init(&fixture.path("new"), None).unwrap();
+    let path = Cabaret::init(&fixture.path("new"), None).unwrap();
+    // HEAD's branch is whatever the user's init.defaultBranch names.
+    expect!["new/main"].assert_eq(&fixture.relative(&path));
     let cabaret = open_cabaret(fixture.path("new"));
     expect![[r#"
         .bare
-        .git"#]]
+        .git
+        main"#]]
     .assert_eq(&fixture.listing("new"));
-    expect!["{}"].assert_eq(&workspaces(&cabaret));
+    expect![[r#"{"main": Some("main")}"#]].assert_eq(&workspaces(&cabaret));
     expect![[r#"
         gitdir: ./.bare
     "#]]
     .assert_eq(&fs::read_to_string(fixture.path("new/.git")).unwrap());
+    first_commit(&path);
+    expect!["main"].assert_eq(&cabaret.trunk().unwrap().to_string());
+    expect![[r#"
+        clean
+    "#]]
+    .assert_eq(&worktree(&open_repo(&path)));
 }
 
 #[test]
@@ -75,13 +85,14 @@ fn init_makes_main_workspace_of_directory_with_contents() {
 #[test]
 fn clone_makes_project_directory_with_remote_branches() {
     let fixture = two_changes();
-    Cabaret::init(&fixture.path("clone"), Some(fixture.path("main").to_str().unwrap())).unwrap();
+    let path = Cabaret::init(&fixture.path("clone"), Some(fixture.path("main").to_str().unwrap())).unwrap();
     let cabaret = open_cabaret(fixture.path("clone"));
     expect![[r#"
         .bare
-        .git"#]]
+        .git
+        one"#]]
     .assert_eq(&fixture.listing("clone"));
-    expect!["{}"].assert_eq(&workspaces(&cabaret));
+    expect![[r#"{"one": Some("one")}"#]].assert_eq(&workspaces(&cabaret));
     let repo = open_repo(fixture.path("clone"));
     let mut refs: Vec<String> =
         repo.references().unwrap().all().unwrap().map(|r| r.unwrap().name().as_bstr().to_string()).collect();
@@ -93,8 +104,6 @@ fn clone_makes_project_directory_with_remote_branches() {
         refs/remotes/origin/one
         refs/remotes/origin/two"#]]
     .assert_eq(&refs.join("\n"));
-
-    let path = cabaret.workspace_add(&id("one"), None).unwrap();
     expect!["clone/one"].assert_eq(&fixture.relative(&path));
     expect![[r#"
         clean

@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use cabaret_config::{Hints, Prefix};
@@ -14,6 +14,7 @@ use cabaret_types::{
     RepoPath, Result, Reviewing, RevisionId, ViewDiff,
     safeguard::{Allow, Safeguard},
 };
+use gix::bstr::ByteSlice;
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
@@ -49,11 +50,12 @@ impl From<gix::ThreadSafeRepository> for Cabaret {
 impl Cabaret {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { store: Store::open(dir)? }) }
 
-    /// A new repository at `dir`, made if need be, empty or cloned from `from`. An empty
-    /// directory becomes a project directory, the bare repository `.bare` with room beside it
-    /// for one workspace per change. One with contents becomes the main workspace of an empty
-    /// repository, as `git init` makes; a clone needs an empty one.
-    pub fn init(dir: &Path, from: Option<&str>) -> Result<()> {
+    /// A new repository at `dir`, made if need be, empty or cloned from `from`, returning where
+    /// its first workspace is. An empty directory becomes a project directory, the bare repository
+    /// `.bare` beside one workspace per change, starting with HEAD's branch checked out. One with
+    /// contents becomes the main workspace of an empty repository, as `git init` makes; a clone
+    /// needs an empty one.
+    pub fn init(dir: &Path, from: Option<&str>) -> Result<PathBuf> {
         let dir = std::path::absolute(dir)?;
         fs::create_dir_all(&dir)?;
         if dir.read_dir()?.next().is_some() {
@@ -61,7 +63,7 @@ impl Cabaret {
                 Err(format!("{} is not empty", dir.display()))?;
             }
             gix::init(&dir)?;
-            return Ok(());
+            return Ok(dir);
         }
         match from {
             Some(url) => {
@@ -73,7 +75,15 @@ impl Cabaret {
             }
         }
         fs::write(dir.join(".git"), GITFILE)?;
-        Ok(())
+        let cabaret = Cabaret::open(&dir)?;
+        let head = cabaret.store.query(|ctx| {
+            let head = ctx.repo.head_name()?.ok_or("HEAD is detached")?;
+            Ok(head.shorten().to_str()?.parse::<ChangeId>()?)
+        })?;
+        match from {
+            Some(_) => cabaret.workspace_add(&head, None),
+            None => cabaret.workspace_add_orphan(&head),
+        }
     }
 
     // Change operations

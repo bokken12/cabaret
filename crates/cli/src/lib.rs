@@ -31,8 +31,9 @@ enum Command {
         #[arg(long = "as")]
         viewer: Option<Identity>,
     },
-    /// Make a new repository. An empty directory gets one laid out with a workspace per change
-    /// beside it; a directory with contents becomes the main workspace, as git init does.
+    /// Make a new repository and print where its first workspace is. An empty directory gets one
+    /// laid out with a workspace per change beside it, starting with the default branch's; a
+    /// directory with contents becomes the main workspace, as git init does.
     Init {
         /// Directory to initialize in
         #[arg(value_hint = ValueHint::DirPath)]
@@ -79,7 +80,7 @@ pub fn run() -> Result<()> {
                 Some(dir) => dir,
                 None => std::env::current_dir()?,
             };
-            Cabaret::init(&dir, from.as_deref())?;
+            println!("{}", Cabaret::init(&dir, from.as_deref())?.display());
         }
         Command::Workspace { command } => command.run(&cabaret()?)?,
     }

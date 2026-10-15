@@ -85,6 +85,14 @@ impl Cabaret {
         Ok(path)
     }
 
+    /// Create a workspace at the default location on `change_id`, a branch yet to have its first
+    /// commit, and return where it was made.
+    pub fn workspace_add_orphan(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
+        let path = self.default_workspace_path(change_id)?;
+        self.store.query(|ctx| Workspace::new(ctx, &path, Head::Change(change_id.to_owned()))?.create_orphan())?;
+        Ok(path)
+    }
+
     /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
     /// share a parent directory. A bare repository has no main workspace; its workspaces go
     /// beside its git dir as `<change>`, in the project directory a `.git` file marks as its own.

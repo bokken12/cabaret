@@ -110,6 +110,23 @@ impl<'ctx> Workspace<'ctx> {
     /// Make the working directory and git's record of it, then fill it with `tip`'s files, as
     /// `git worktree add` does.
     pub fn create(&self, tip: RevisionId) -> Result<()> {
+        let repo = self.register()?;
+        self.write_files(&repo, &repo.empty_tree(), &repo.find_commit(tip)?.tree()?)
+    }
+
+    /// Make the working directory and git's record of it, empty, on a branch yet to have its first
+    /// commit, as `git worktree add --orphan` does.
+    pub fn create_orphan(&self) -> Result<()> {
+        let Head::Change(id) = &self.head else { Err("an orphan workspace must be on a branch")? };
+        if self.ctx.repo.try_find_reference(&id.branch_ref())?.is_some() {
+            Err(format!("{id} already has commits"))?;
+        }
+        self.register()?;
+        Ok(())
+    }
+
+    /// Make the empty working directory and git's record of it, with HEAD at the head.
+    fn register(&self) -> Result<Repository> {
         let WorkspaceIdRef::Linked(id) = self.id() else { Err("the main workspace cannot be added")? };
         // Canonical, as a linked workspace reaches its common dir through `..` segments that
         // stop resolving once that workspace is removed.
@@ -131,8 +148,7 @@ impl<'ctx> Workspace<'ctx> {
         };
         fs::write(admin.join("HEAD"), head)?;
         fs::write(self.path.join(".git"), format!("gitdir: {}\n", admin.display()))?;
-        let repo = self.repo()?;
-        self.write_files(&repo, &repo.empty_tree(), &repo.find_commit(tip)?.tree()?)
+        self.repo()
     }
 
     /// Check out `to` in place of `from`, the revision the files are at, and point HEAD at the

@@ -28,11 +28,17 @@ Cabaret uses `git`'s `user.email` as your identity, so make sure it's set:
 git config --global user.email you@example.com
 ```
 
-Any `git` clone works as Cabaret's main workspace. From inside one, a typical change goes like this:
+Then make a project directory, which holds one workspace per change, starting with the default branch's:
+
+```sh
+cd "$(cab init --from <url> my-project)"    # prints where the workspace is
+```
+
+Leave off `--from` to start empty, then make a first commit with `git` as you would after `git init`. An existing `git` clone works too, with workspaces made beside it. From a workspace, a typical change goes like this:
 
 ```sh
 cab change create my-feature                # branch off the change you're in
-cab workspace add my-feature                # check it out beside this workspace
+cab workspace add my-feature                # check it out in its own workspace
 cd "$(cab workspace path my-feature)"
 # ...edit...
 cab change commit                           # record your work
