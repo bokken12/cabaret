@@ -1,0 +1,1 @@
+Refuse with the first safeguard not allowed, rather than all of them. `Error::Refused` and the node `Refused` outcomes carry one `Safeguard`; allowing it and retrying surfaces the next. The `*_safeguards` previews still list every one, so VS Code's upfront confirmations are unchanged.
