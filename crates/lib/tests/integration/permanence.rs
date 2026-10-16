@@ -20,10 +20,7 @@ fn stacked() -> Fixture {
 fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: &Allow) -> String {
     match fixture.cabaret.set_permanent(&id(change), permanent, allow) {
         Ok(()) => format!("permanent: {}", fixture.snapshot(change).permanent),
-        Err(Error::Refused(refused)) => {
-            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
-            format!("refused: {}", shown.join("; "))
-        }
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }

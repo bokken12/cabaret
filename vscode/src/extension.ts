@@ -1380,11 +1380,11 @@ function allowed(safeguards: Map<ChangeId, Safeguard[]>, change: ChangeId): Safe
   return (safeguards.get(change) ?? []).map(({ kind }) => kind);
 }
 
-type Refused = { outcome: "Refused"; safeguards: Safeguard[] };
+type Refused = { outcome: "Refused"; safeguard: Safeguard };
 
 /**
- * `attempt` allowing `allow`, and whenever safeguards not yet allowed refuse it, asking whether to
- * `action` anyway and retrying with those allowed too; undefined once the user declines.
+ * `attempt` allowing `allow`, and whenever a safeguard not yet allowed refuses it, asking whether to
+ * `action` anyway and retrying with that allowed too; undefined once the user declines.
  */
 async function despite<Done extends { outcome: "Done" }>(
   action: string,
@@ -1397,21 +1397,19 @@ async function despite<Done extends { outcome: "Done" }>(
     if (result.outcome === "Done") {
       return result;
     }
-    const again = result.safeguards.filter(({ kind }) => allow.includes(kind));
-    if (again.length > 0) {
-      throw new Error(
-        `cannot ${action}: refused by safeguards already allowed: ${words(again.map(({ kind }) => kind))}`,
-      );
+    const { kind, message } = result.safeguard;
+    if (allow.includes(kind)) {
+      throw new Error(`cannot ${action}: refused by safeguard already allowed: ${kind}`);
     }
     const choice = await vscode.window.showWarningMessage(
       `${action} anyway?`,
-      { modal: true, detail: result.safeguards.map(({ message }) => message).join("\n") },
+      { modal: true, detail: message },
       proceed,
     );
     if (choice !== proceed) {
       return undefined;
     }
-    allow = [...allow, ...result.safeguards.map(({ kind }) => kind)];
+    allow = [...allow, kind];
   }
 }
 

@@ -28,10 +28,7 @@ fn commit_allowing(fixture: &Fixture, change: &str, pathspecs: &[&str], allow: &
     let pathspecs = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect::<Vec<_>>();
     match fixture.cabaret.commit(&id(change), &pathspecs, allow) {
         Ok(revision) => format!("committed {:?}", fixture.message(revision)),
-        Err(Error::Refused(refused)) => {
-            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
-            format!("refused: {}", shown.join("; "))
-        }
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }

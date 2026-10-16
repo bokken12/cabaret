@@ -17,7 +17,7 @@ use cabaret_types::{
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
-use nonempty_collections::{NEBTreeSet, NEVec};
+use nonempty_collections::NEBTreeSet;
 
 use crate::cabaret::{Cabaret, Rebase};
 
@@ -50,19 +50,19 @@ pub struct Safeguard {
     pub message: String,
 }
 
-fn presented(safeguards: impl IntoIterator<Item = cabaret_types::safeguard::Safeguard>) -> Vec<Safeguard> {
-    let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
-        kind: SafeguardKind::from(&safeguard),
-        message: safeguard.to_string(),
-    };
+fn present(safeguard: cabaret_types::safeguard::Safeguard) -> Safeguard {
+    Safeguard { kind: SafeguardKind::from(&safeguard), message: safeguard.to_string() }
+}
+
+fn presented(safeguards: Vec<cabaret_types::safeguard::Safeguard>) -> Vec<Safeguard> {
     safeguards.into_iter().map(present).collect()
 }
 
 /// Refusals as a value to present, other failures as the errors they are.
-fn outcome<T>(result: Result<T>) -> Result<std::result::Result<T, NEVec<cabaret_types::safeguard::Safeguard>>> {
+fn outcome<T>(result: Result<T>) -> Result<std::result::Result<T, cabaret_types::safeguard::Safeguard>> {
     match result {
         Ok(out) => Ok(Ok(out)),
-        Err(Error::Refused(refused)) => Ok(Err(refused)),
+        Err(Error::Refused(safeguard)) => Ok(Err(safeguard)),
         Err(error) => Err(error),
     }
 }
@@ -71,14 +71,14 @@ fn outcome<T>(result: Result<T>) -> Result<std::result::Result<T, NEVec<cabaret_
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Attempt {
     Done,
-    Refused { safeguards: Vec<Safeguard> },
+    Refused { safeguard: Safeguard },
 }
 
-impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> for Attempt {
-    fn from(attempt: std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>) -> Self {
+impl From<std::result::Result<(), cabaret_types::safeguard::Safeguard>> for Attempt {
+    fn from(attempt: std::result::Result<(), cabaret_types::safeguard::Safeguard>) -> Self {
         match attempt {
             Ok(()) => Self::Done,
-            Err(refused) => Self::Refused { safeguards: presented(refused) },
+            Err(safeguard) => Self::Refused { safeguard: present(safeguard) },
         }
     }
 }
@@ -88,28 +88,28 @@ impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> f
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Created {
     Done { change: ChangeId },
-    Refused { safeguards: Vec<Safeguard> },
+    Refused { safeguard: Safeguard },
 }
 
 /// What [`Cabaret::commit`] did.
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Committed {
     Done { revision: RevisionId },
-    Refused { safeguards: Vec<Safeguard> },
+    Refused { safeguard: Safeguard },
 }
 
 /// What [`Cabaret::land`] did.
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Landed {
     Done { into: ChangeId },
-    Refused { safeguards: Vec<Safeguard> },
+    Refused { safeguard: Safeguard },
 }
 
 /// What [`Cabaret::rebase`] did.
 #[napi(discriminant = "outcome", object_from_js = false)]
 pub enum Rebased {
     Done { rebase: Rebase },
-    Refused { safeguards: Vec<Safeguard> },
+    Refused { safeguard: Safeguard },
 }
 
 fn path_string(path: PathBuf) -> Result<String> {
@@ -315,7 +315,7 @@ impl CabaretJs {
             .await?;
         Ok(match committed {
             Ok(revision) => Committed::Done { revision },
-            Err(refused) => Committed::Refused { safeguards: presented(refused) },
+            Err(safeguard) => Committed::Refused { safeguard: present(safeguard) },
         })
     }
 
@@ -334,7 +334,7 @@ impl CabaretJs {
             let parents = NEBTreeSet::new(parent);
             Ok(match outcome(cabaret.create(&name, &parents, &cabaret.identity()?, &Allow::from_iter(allow)))? {
                 Ok(change) => Created::Done { change },
-                Err(refused) => Created::Refused { safeguards: presented(refused) },
+                Err(safeguard) => Created::Refused { safeguard: present(safeguard) },
             })
         })
         .await
@@ -429,7 +429,7 @@ impl CabaretJs {
         let landed = self.blocking(move |cabaret| outcome(cabaret.land(&change, &Allow::from_iter(allow)))).await?;
         Ok(match landed {
             Ok(into) => Landed::Done { into },
-            Err(refused) => Landed::Refused { safeguards: presented(refused) },
+            Err(safeguard) => Landed::Refused { safeguard: present(safeguard) },
         })
     }
 
@@ -463,7 +463,7 @@ impl CabaretJs {
             .await?;
         Ok(match rebased {
             Ok(rebase) => Rebased::Done { rebase },
-            Err(refused) => Rebased::Refused { safeguards: presented(refused) },
+            Err(safeguard) => Rebased::Refused { safeguard: present(safeguard) },
         })
     }
 }

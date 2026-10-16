@@ -20,10 +20,7 @@ fn co_owned() -> Fixture {
 fn shown(attempt: cabaret_lib::Result<()>) -> String {
     match attempt {
         Ok(()) => "done".to_owned(),
-        Err(Error::Refused(refused)) => {
-            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
-            format!("refused: {}", shown.join("; "))
-        }
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }

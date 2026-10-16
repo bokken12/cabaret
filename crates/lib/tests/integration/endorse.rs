@@ -20,10 +20,7 @@ fn feature() -> Fixture {
 fn endorse(fixture: &Fixture, allow: &Allow) -> String {
     match fixture.cabaret.endorse(&id("feature"), allow) {
         Ok(()) => format!("endorsers: {:?}", fixture.snapshot("feature").endorsers),
-        Err(Error::Refused(refused)) => {
-            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
-            format!("refused: {}", shown.join("; "))
-        }
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }

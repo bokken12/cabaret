@@ -31,7 +31,7 @@ fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, chan
 fn land_allowing(fixture: &Fixture, change: &str, allow: &Allow) -> String {
     match fixture.cabaret.land(&id(change), allow) {
         Ok(parent) => format!("landed into {parent}"),
-        Err(Error::Refused(refused)) => format!("refused: {}", shown(refused)),
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -213,14 +213,14 @@ fn endorsement_outlasts_later_commits() {
 }
 
 #[test]
-fn each_safeguard_needs_allowing() {
+fn safeguards_refuse_one_at_time() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review; bob@example.com has not endorsed it"].assert_eq(&land(&fixture, "child"));
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has not endorsed it"].assert_eq(&land_allowing(
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land(&fixture, "child"));
+    expect!["refused: bob@example.com has files left to review"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Unreviewed]),
+        &Allow::from_iter([SafeguardKind::NonOwner]),
     ));
     expect!["refused: bob@example.com has not endorsed it"].assert_eq(&land_allowing(
         &fixture,

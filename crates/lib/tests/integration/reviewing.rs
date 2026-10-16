@@ -18,10 +18,7 @@ fn feature() -> Fixture {
 fn set_reviewing(fixture: &Fixture, reviewing: Reviewing, allow: &Allow) -> String {
     match fixture.cabaret.set_reviewing(&id("feature"), reviewing, allow) {
         Ok(()) => format!("reviewing: {}", fixture.snapshot("feature").reviewing),
-        Err(Error::Refused(refused)) => {
-            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
-            format!("refused: {}", shown.join("; "))
-        }
+        Err(Error::Refused(safeguard)) => format!("refused: {safeguard}"),
         Err(error) => format!("error: {error:?}"),
     }
 }

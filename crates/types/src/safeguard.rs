@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use nonempty_collections::{NEBTreeSet, NEVec};
+use nonempty_collections::NEBTreeSet;
 use strum::{Display, EnumDiscriminants, EnumString, VariantNames};
 
 use crate::{
@@ -128,11 +128,10 @@ pub struct Allow(BTreeSet<SafeguardKind>);
 impl Allow {
     pub fn allows(&self, kind: SafeguardKind) -> bool { self.0.contains(&kind) }
 
-    /// Refuse the action if any of `safeguards` is not allowed.
+    /// Refuse the action for the first of `safeguards` not allowed.
     pub fn check(&self, safeguards: Vec<Safeguard>) -> Result<()> {
-        let refused = safeguards.into_iter().filter(|safeguard| !self.allows(SafeguardKind::from(safeguard))).collect();
-        match NEVec::try_from_vec(refused) {
-            Some(refused) => Err(Error::Refused(refused)),
+        match safeguards.into_iter().find(|safeguard| !self.allows(SafeguardKind::from(safeguard))) {
+            Some(safeguard) => Err(Error::Refused(safeguard)),
             None => Ok(()),
         }
     }

@@ -14,11 +14,9 @@ fn main() -> ExitCode {
     CompleteEnv::with_factory(cabaret_cli::Cli::command).complete();
     match cabaret_cli::run() {
         Ok(()) => ExitCode::SUCCESS,
-        // `--allow <kind>` works on every command, so each refusing safeguard names the flag for it.
-        Err(Error::Refused(refused)) => {
-            for safeguard in refused {
-                eprintln!("cab: {safeguard}; pass --allow {} to override", SafeguardKind::from(&safeguard));
-            }
+        // `--allow <kind>` works on every command, so the refusing safeguard names the flag for it.
+        Err(Error::Refused(safeguard)) => {
+            eprintln!("cab: {safeguard}; pass --allow {} to override", SafeguardKind::from(&safeguard));
             ExitCode::FAILURE
         }
         Err(Error::Failed(message)) => {

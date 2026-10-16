@@ -1,15 +1,12 @@
 use std::{fmt, fmt::Display};
 
-use nonempty_collections::NEVec;
-
 use crate::safeguard::Safeguard;
 
 // TODO(joel): consider including a backtrace for debugging?
 pub enum Error {
-    // TODO-someday(joel): the code might get simpler if we allowed aborting on the first refusal rather than
-    // collecting up all safeguards?
-    /// Safeguards the caller did not allow stopped the action; allowing them lets it go ahead.
-    Refused(NEVec<Safeguard>),
+    /// A safeguard the caller did not allow stopped the action; others may still stop it once this
+    /// one is allowed.
+    Refused(Safeguard),
     Failed(String),
 }
 
@@ -22,10 +19,7 @@ impl<E: Display> From<E> for Error {
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Refused(refused) => {
-                let reasons: Vec<String> = refused.iter().map(ToString::to_string).collect();
-                write!(f, "refused: {}", reasons.join("; "))
-            }
+            Self::Refused(safeguard) => write!(f, "refused: {safeguard}"),
             Self::Failed(message) => f.write_str(message),
         }
     }
