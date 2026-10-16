@@ -220,7 +220,7 @@ fn archived_parent_refuses_unless_allowed() {
     fixture.create("done", "main", &alice());
     fixture.create("change", "main", &alice());
     fixture.archive("done");
-    expect!["refused: done is archived, so it would be skipped"].assert_eq(&add_parent(
+    expect!["refused: done is archived, so should not have unarchived children"].assert_eq(&add_parent(
         &fixture,
         "change",
         "done",

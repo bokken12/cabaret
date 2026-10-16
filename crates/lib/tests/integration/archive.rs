@@ -59,7 +59,7 @@ fn archived_parents_refuse_unarchiving_unless_allowed() {
     let fixture = stacked();
     fixture.archive("child");
     fixture.archive("parent");
-    expect!["refused: parent is archived, so its diff would take in the archived work"].assert_eq(&unarchive(
+    expect!["refused: parent is archived, so should not have unarchived children"].assert_eq(&unarchive(
         &fixture,
         "child",
         &Allow::default(),

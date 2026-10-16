@@ -49,7 +49,7 @@ fn creating_child_of_archived_change_refuses_unless_allowed() {
     fixture.create("done", "main", &alice());
     fixture.archive("done");
     let error = fixture.cabaret.create("child", &nebts![id("done")], &alice(), &Allow::default()).unwrap_err();
-    expect!["refused: done is archived, so it would be skipped"].assert_eq(&format!("{error:?}"));
+    expect!["refused: done is archived, so should not have unarchived children"].assert_eq(&format!("{error:?}"));
     expect![[r#"["done", "main"]"#]].assert_eq(&format!("{:?}", fixture.cabaret.changes().unwrap()));
     let allow = Allow::from_iter([SafeguardKind::ArchivedParents]);
     fixture.cabaret.create("child", &nebts![id("done")], &alice(), &allow).unwrap();
