@@ -1,15 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/main.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/node.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/archive.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/commit.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/endorse.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/land.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/owners.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/permanence.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/rebase.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/reviewing.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/workspace.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/error.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/safeguard.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/cli/src/main.rs","revision":"0319e1897de88a0a0305c49bbfb705bb9e92f73a"}
