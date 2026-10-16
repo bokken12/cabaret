@@ -6,6 +6,8 @@ use crate::safeguard::Safeguard;
 
 // TODO(joel): consider including a backtrace for debugging?
 pub enum Error {
+    // TODO-someday(joel): the code might get simpler if we allowed aborting on the first refusal rather than
+    // collecting up all safeguards?
     /// Safeguards the caller did not allow stopped the action; allowing them lets it go ahead.
     Refused(NEVec<Safeguard>),
     Failed(String),
