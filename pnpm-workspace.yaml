@@ -1,6 +1,7 @@
 packages:
   - node
   - vscode
+  - website
 
 # esbuild's postinstall swaps its JS bin for a native binary, which pnpm's node shim then can't run.
 allowBuilds:
