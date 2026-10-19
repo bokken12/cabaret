@@ -1,0 +1,289 @@
+.features .stack-feature {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.features .stack-feature > h3,
+.features .stack-feature > p {
+  max-width: 850px;
+}
+.stack-comparison {
+  margin-top: 34px;
+  color: var(--blue);
+}
+.stack-cast {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px 42px;
+  padding: 0 0 24px;
+}
+.stack-cast-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: 0.8125rem/1.6 var(--mono);
+}
+.stack-cast-item b {
+  font-weight: 400;
+}
+.cast-swatch {
+  display: block;
+  width: 48px;
+  height: 32px;
+  overflow: visible;
+  flex-shrink: 0;
+}
+.cast-shadow {
+  fill: var(--blue);
+  fill-opacity: 0.12;
+}
+.cast-face {
+  fill: var(--paper);
+  stroke: var(--blue);
+  stroke-width: 1.2;
+}
+.cast-swatch path {
+  stroke: var(--blue);
+  fill: none;
+  stroke-width: 2;
+}
+.cast-swatch-B .cast-face {
+  fill: var(--red);
+  stroke: var(--red);
+}
+.cast-swatch-C .cast-face {
+  fill: var(--blue);
+}
+.cast-swatch-B path,
+.cast-swatch-C path {
+  stroke: var(--paper);
+}
+.stack-scroll {
+  overflow-x: auto;
+  scrollbar-color: var(--blue) #e6dec5;
+  scrollbar-width: thin;
+  padding: 0 0 16px;
+}
+.stack-scroll:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 5px;
+}
+.stack-strips {
+  min-width: 1120px;
+}
+.comparison-strip + .comparison-strip {
+  margin-top: 42px;
+}
+.strip-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #243c9140;
+  margin-bottom: 26px;
+}
+.strip-heading h4 {
+  margin: 0;
+  font: 0.8125rem/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+.cabaret-strip .strip-heading h4 {
+  color: var(--red);
+}
+.strip-frames {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+.stack-frame {
+  margin: 0;
+  min-width: 0;
+}
+.stack-frame svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.stack-frame figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 15px 8px 0;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.stack-frame figcaption > span {
+  font: 0.75rem var(--mono);
+  flex-shrink: 0;
+  color: var(--blue);
+}
+.graph-card-shadow {
+  fill: var(--blue);
+  fill-opacity: 0.12;
+}
+.graph-card-face {
+  fill: var(--paper);
+  stroke: var(--blue);
+  stroke-width: 1.5;
+}
+.graph-code {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 4;
+}
+.graph-change-B .graph-card-face {
+  fill: var(--red);
+  stroke: var(--red);
+}
+.graph-change-C .graph-card-face {
+  fill: var(--blue);
+}
+.graph-change-B .graph-code,
+.graph-change-C .graph-code {
+  stroke: var(--paper);
+}
+.graph-letter {
+  fill: var(--blue);
+  font: 12px var(--mono);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 4;
+}
+.graph-landed .graph-card-face,
+.graph-landed .graph-code {
+  opacity: 0.38;
+}
+.graph-landed .graph-card-shadow {
+  opacity: 0.4;
+}
+.graph-main-shadow {
+  fill: var(--blue);
+  fill-opacity: 0.12;
+}
+.graph-main-face {
+  fill: var(--paper);
+  stroke: var(--blue);
+  stroke-width: 1.5;
+}
+.graph-main-header {
+  fill: var(--blue);
+}
+.graph-main-label {
+  fill: var(--paper);
+  font: 11px var(--mono);
+  letter-spacing: 0.5px;
+}
+.graph-edge {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 1.5;
+}
+.graph-muted-edge {
+  opacity: 0.25;
+}
+.graph-manual {
+  stroke: var(--red);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+.graph-approved rect {
+  fill: var(--paper);
+}
+.graph-approved path {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.graph-review rect {
+  fill: var(--paper);
+  stroke: var(--red);
+  stroke-width: 1.2;
+}
+.graph-review text {
+  fill: var(--red);
+  font: 17px var(--mono);
+}
+.graph-empty-slot rect {
+  fill: var(--blue);
+  fill-opacity: 0.035;
+  stroke: var(--blue);
+  stroke-opacity: 0.25;
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.graph-rebase-label {
+  fill: var(--red);
+  font: 12px var(--mono);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 6;
+  stroke-linejoin: round;
+}
+.graph-parent-label {
+  fill: var(--blue);
+  font: 12px var(--mono);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 5;
+  stroke-linejoin: round;
+}
+.stack-finish {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 25px 8px 6px;
+}
+.stack-stamp {
+  display: inline-block;
+  color: var(--red);
+  border: 1.5px solid var(--red);
+  padding: 8px 14px;
+  font: 0.75rem/1.4 var(--mono);
+  letter-spacing: 0.5px;
+  transform: rotate(-4deg);
+  flex-shrink: 0;
+}
+.features .stack-takeaway {
+  margin: 0;
+  max-width: none;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+.stack-scroll-hint {
+  display: none;
+}
+@media (max-width: 1224px) {
+  .features .stack-scroll-hint {
+    display: block;
+    font: 0.75rem/1.6 var(--mono);
+    color: #686a75;
+    margin: 0 0 16px;
+  }
+}
+@media (max-width: 780px) {
+  .features article.stack-feature {
+    padding-left: 0;
+  }
+  .features .stack-feature > .feature-number {
+    position: static;
+    display: block;
+    margin: 0 0 12px;
+  }
+  .stack-cast {
+    flex-direction: column;
+    gap: 18px;
+  }
+  .strip-heading {
+    display: block;
+  }
+  .stack-finish {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 22px;
+    padding-left: 4px;
+  }
+}
