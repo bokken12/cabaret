@@ -165,7 +165,6 @@ impl Store {
         Ok(locks)
     }
 
-    // TODO-someday(joel): variable-sized transactions?
     // TODO(joel): transactions do not (yet) modify changes
     /// Run `f` against a fresh context and record what it changed; if `f` fails, as when
     /// refused, nothing is recorded.
@@ -175,19 +174,19 @@ impl Store {
     /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
     /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
     /// other changes through the context.
-    pub fn transact<const L: usize, const M: usize, const N: usize, T, F>(
+    pub fn transact_<T, F>(
         &self,
-        metadata_ids: &[&ChangeIdRef; L],
-        branch_ops: &[BranchOp<'_>; M],
-        workspace_ops: &[WorkspaceOp<'_>; N],
+        metadata_ids: &[&ChangeIdRef],
+        branch_ops: &[BranchOp<'_>],
+        workspace_ops: &[WorkspaceOp<'_>],
         f: F,
     ) -> Result<T>
     where
         F: for<'ctx> FnOnce(
             &'ctx TransactionContext<'ctx>,
-            &mut [Metadata<'ctx>; L],
-            &mut [Branch<'ctx>; M],
-            &mut [Workspace<'ctx>; N],
+            &mut [Metadata<'ctx>],
+            &mut [Branch<'ctx>],
+            &mut [Workspace<'ctx>],
         ) -> Result<T>,
     {
         // metadata, then branches, then workspaces, always, so two transactions cannot wait on
@@ -199,24 +198,22 @@ impl Store {
         // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 
+        // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
         // append creates the log.
-        let mut metadata = Vec::with_capacity(L);
+        let mut metadata = Vec::new();
         for id in metadata_ids {
             metadata.push(ctx.metadata(id)?.clone());
         }
-        let mut metadata: [Metadata<'_>; L] = metadata.try_into().expect("one metadata per id");
-        let mut branches = Vec::with_capacity(M);
+        let mut branches = Vec::new();
         for op in branch_ops {
             branches.push(op.before(&ctx)?);
         }
-        let mut branches: [Branch<'_>; M] = branches.try_into().expect("one branch per op");
-
-        let mut workspaces = Vec::with_capacity(N);
+        let mut workspaces = Vec::new();
         for op in workspace_ops {
             workspaces.push(op.before(&ctx)?);
         }
-        let mut workspaces: [Workspace<'_>; N] = workspaces.try_into().expect("one workspace per op");
+
         // A fast-forward writes a workspace's files under only the lock of the branch it holds,
         // so everything else writing there must hold that lock too.
         for workspace in &workspaces {
@@ -283,6 +280,37 @@ impl Store {
             }
         }
         Ok(out)
+    }
+
+    /// Equivalent to `transact_` but with const sizes
+    pub fn transact<const L: usize, const M: usize, const N: usize, T, F>(
+        &self,
+        metadata_ids: &[&ChangeIdRef; L],
+        branch_ops: &[BranchOp<'_>; M],
+        workspace_ops: &[WorkspaceOp<'_>; N],
+        f: F,
+    ) -> Result<T>
+    where
+        F: for<'ctx> FnOnce(
+            &'ctx TransactionContext<'ctx>,
+            &mut [Metadata<'ctx>; L],
+            &mut [Branch<'ctx>; M],
+            &mut [Workspace<'ctx>; N],
+        ) -> Result<T>,
+    {
+        self.transact_(
+            metadata_ids.as_slice(),
+            branch_ops.as_slice(),
+            workspace_ops.as_slice(),
+            |ctx, metadata, branches, workspaces| {
+                f(
+                    ctx,
+                    metadata.try_into().expect("one metadata per id"),
+                    branches.try_into().expect("one branch per id"),
+                    workspaces.try_into().expect("one workspace per id"),
+                )
+            },
+        )
     }
 
     pub fn query<T, F>(&self, f: F) -> Result<T>
