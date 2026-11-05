@@ -1,0 +1,1 @@
+Minimizes use of `TransactionContext::check_all`, which was made to be transitional from `Allow`.
