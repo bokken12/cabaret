@@ -4,8 +4,6 @@
 
 use std::{collections::BTreeSet, thread, time::Duration};
 
-use cabaret_lib::WorkspaceId;
-
 use super::fixture::{Fixture, alice, id};
 
 fn parent_and_child() -> Fixture {

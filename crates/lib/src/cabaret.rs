@@ -270,13 +270,11 @@ impl Cabaret {
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
         let branches = [BranchOp::Insert { id: &change_id, tip }];
         self.store.transact(allow, &[&change_id], &branches, &[], |ctx, [metadata], [branch], []| {
-            let mut safeguards = Vec::new();
             for parent_id in parent_ids {
                 if ctx.metadata(parent_id)?.archived {
-                    safeguards.push(Safeguard::ArchivedParents { parents: nebts![parent_id.clone()] });
+                    ctx.check(Safeguard::ArchivedParents { parents: nebts![parent_id.clone()] });
                 }
             }
-            ctx.check_all(safeguards);
             for parent_id in rest {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
@@ -347,9 +345,9 @@ impl Cabaret {
             let parents = ctx.metadata(change_id)?.parents()?;
             let before = branch.conflicted_files(&parents)?;
             let added = committed.conflicted_files(&parents)?.difference(&before).cloned().collect();
-            let safeguards =
-                Vec::from_iter(NEBTreeSet::try_from_set(added).map(|files| Safeguard::Conflicted { files }));
-            ctx.check_all(safeguards);
+            if let Some(files) = NEBTreeSet::try_from_set(added) {
+                ctx.check(Safeguard::Conflicted { files });
+            }
             if workspace.snapshot(pathspecs)? != tree {
                 Err(format!("files changed while committing to {change_id}; commit again"))?;
             }
@@ -454,14 +452,12 @@ impl Cabaret {
             if metadata.archived {
                 return Ok(());
             }
-            let mut safeguards = Vec::new();
             if let Some(children) = NEBTreeSet::try_from_set(open_children(ctx, change_id)?) {
-                safeguards.push(Safeguard::OpenChildren { children });
+                ctx.check(Safeguard::OpenChildren { children });
             }
             if metadata.permanent {
-                safeguards.push(Safeguard::Permanent);
+                ctx.check(Safeguard::Permanent);
             }
-            ctx.check_all(safeguards);
             metadata.archived = true;
             Ok(())
         })
@@ -478,10 +474,9 @@ impl Cabaret {
                     archived.insert(parent.clone());
                 }
             }
-            let safeguards = Vec::from_iter(
-                NEBTreeSet::try_from_set(archived).map(|parents| Safeguard::ArchivedParents { parents }),
-            );
-            ctx.check_all(safeguards);
+            if let Some(parents) = NEBTreeSet::try_from_set(archived) {
+                ctx.check(Safeguard::ArchivedParents { parents });
+            }
             metadata.archived = false;
             Ok(())
         })
@@ -664,7 +659,9 @@ impl Cabaret {
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            let mut safeguards = Vec::from_iter(non_owner(metadata)?);
+            if let Some(non_owner) = non_owner(metadata)? {
+                ctx.check(non_owner);
+            }
             if permanent {
                 let mut impermanent = BTreeSet::new();
                 for parent_id in metadata.parents()? {
@@ -675,10 +672,9 @@ impl Cabaret {
                     }
                 }
                 if let Some(parents) = NEBTreeSet::try_from_set(impermanent) {
-                    safeguards.push(Safeguard::ImpermanentParents { parents });
+                    ctx.check(Safeguard::ImpermanentParents { parents });
                 }
             }
-            ctx.check_all(safeguards);
             metadata.permanent = permanent;
             Ok(())
         })
