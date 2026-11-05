@@ -1132,8 +1132,8 @@ async function workspaceFor(
       if (placement.dedicated) {
         return { kind: "Elsewhere", path: await cabaret.workspaceAdd(change) };
       }
-      const switching = (allow: SafeguardKind[]) => cabaret.workspaceSwitch(change, allow);
-      if ((await despite(`Check ${change} out here`, "Check Out Anyway", [], switching)) === undefined) {
+      const switching = (allow: Set<SafeguardKind>) => cabaret.workspaceSwitch(change, allow);
+      if ((await despite(`Check ${change} out here`, "Check Out Anyway", switching)) === undefined) {
         return undefined;
       }
       return { kind: "Here" };
@@ -1343,61 +1343,24 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
-/** The safeguards that would refuse each of `changes`, leaving out those none would. */
-async function safeguarded(
-  changes: ChangeId[],
-  safeguards: (change: ChangeId) => Promise<Safeguard[]>,
-): Promise<Map<ChangeId, Safeguard[]>> {
-  const found = new Map<ChangeId, Safeguard[]>();
-  for (const change of changes) {
-    const those = await safeguards(change);
-    if (those.length > 0) {
-      found.set(change, those);
-    }
-  }
-  return found;
-}
-
-function describeSafeguards(safeguards: Map<ChangeId, Safeguard[]>): string {
-  return [...safeguards].flatMap(([change, those]) => those.map(({ message }) => `${change}: ${message}`)).join("\n");
-}
-
-/** Whether the user will `action` despite `safeguards`, asking only when there are any. */
-async function accept(action: string, proceed: string, safeguards: Map<ChangeId, Safeguard[]>): Promise<boolean> {
-  if (safeguards.size === 0) {
-    return true;
-  }
-  const choice = await vscode.window.showWarningMessage(
-    `${action} anyway?`,
-    { modal: true, detail: describeSafeguards(safeguards) },
-    proceed,
-  );
-  return choice === proceed;
-}
-
-/** The kinds the user accepted for `change` when shown `safeguards`. */
-function allowed(safeguards: Map<ChangeId, Safeguard[]>, change: ChangeId): SafeguardKind[] {
-  return (safeguards.get(change) ?? []).map(({ kind }) => kind);
-}
-
 type Refused = { outcome: "Refused"; safeguards: Safeguard[] };
 
 /**
- * `attempt` allowing `allow`, and whenever safeguards not yet allowed refuse it, asking whether to
- * `action` anyway and retrying with those allowed too; undefined once the user declines.
+ * `attempt`, and whenever safeguards not yet allowed refuse it, asking whether to `action` anyway
+ * and retrying with those allowed too; undefined once the user declines.
  */
 async function despite<Done extends { outcome: "Done" }>(
   action: string,
   proceed: string,
-  allow: SafeguardKind[],
-  attempt: (allow: SafeguardKind[]) => Promise<Done | Refused>,
+  attempt: (allow: Set<SafeguardKind>) => Promise<Done | Refused>,
 ): Promise<Done | undefined> {
+  const allow = new Set<SafeguardKind>();
   for (;;) {
     const result = await attempt(allow);
     if (result.outcome === "Done") {
       return result;
     }
-    const again = result.safeguards.filter(({ kind }) => allow.includes(kind));
+    const again = result.safeguards.filter(({ kind }) => allow.has(kind));
     if (again.length > 0) {
       throw new Error(
         `cannot ${action}: refused by safeguards already allowed: ${words(again.map(({ kind }) => kind))}`,
@@ -1411,22 +1374,15 @@ async function despite<Done extends { outcome: "Done" }>(
     if (choice !== proceed) {
       return undefined;
     }
-    allow = [...allow, ...result.safeguards.map(({ kind }) => kind)];
+    for (const { kind } of result.safeguards) {
+      allow.add(kind);
+    }
   }
 }
 
-/** Rebase, once the user accepts any safeguards that would refuse it. */
-async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
-  const safeguards = await safeguarded(changes, (change) => cabaret.rebaseSafeguards(change, undefined));
-  if (!(await accept(`Rebase ${words(safeguards.keys())}`, "Rebase Anyway", safeguards))) {
-    return undefined;
-  }
-  return { step: (change) => rebase(cabaret, change, allowed(safeguards, change)) };
-}
-
-async function rebase(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<Step> {
-  const rebasing = (allow: SafeguardKind[]) => cabaret.rebase(change, undefined, allow);
-  const rebased = await despite(`Rebase ${change}`, "Rebase Anyway", allow, rebasing);
+async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
+  const rebasing = (allow: Set<SafeguardKind>) => cabaret.rebase(change, undefined, allow);
+  const rebased = await despite(`Rebase ${change}`, "Rebase Anyway", rebasing);
   if (rebased === undefined) {
     return { report: `did not rebase ${change}`, complete: false };
   }
@@ -1452,8 +1408,8 @@ async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome 
   if (name === undefined) {
     return undefined;
   }
-  const creating = (allow: SafeguardKind[]) => cabaret.create(name, parent, allow);
-  const created = await despite(`Create ${name}`, "Create Anyway", [], creating);
+  const creating = (allow: Set<SafeguardKind>) => cabaret.create(name, parent, allow);
+  const created = await despite(`Create ${name}`, "Create Anyway", creating);
   if (created === undefined) {
     return undefined;
   }
@@ -1489,8 +1445,8 @@ async function removeOwner(cabaret: Cabaret, change: ChangeId): Promise<string |
   if (owner === undefined) {
     return undefined;
   }
-  const removing = (allow: SafeguardKind[]) => cabaret.removeOwner(change, owner, allow);
-  if ((await despite(`Remove ${owner} as an owner of ${change}`, "Remove Anyway", [], removing)) === undefined) {
+  const removing = (allow: Set<SafeguardKind>) => cabaret.removeOwner(change, owner, allow);
+  if ((await despite(`Remove ${owner} as an owner of ${change}`, "Remove Anyway", removing)) === undefined) {
     return undefined;
   }
   return `removed ${owner} as an owner of ${change}`;
@@ -1501,8 +1457,8 @@ async function addParent(cabaret: Cabaret, change: ChangeId): Promise<string | u
   if (parent === undefined) {
     return undefined;
   }
-  const attempt = (allow: SafeguardKind[]) => cabaret.addParent(change, parent, allow);
-  if ((await despite(`Add ${parent} as a parent of ${change}`, "Add Anyway", [], attempt)) === undefined) {
+  const attempt = (allow: Set<SafeguardKind>) => cabaret.addParent(change, parent, allow);
+  if ((await despite(`Add ${parent} as a parent of ${change}`, "Add Anyway", attempt)) === undefined) {
     return undefined;
   }
   return `added ${parent} as a parent of ${change}`;
@@ -1519,8 +1475,8 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
   if (parent === undefined) {
     return undefined;
   }
-  const attempt = (allow: SafeguardKind[]) => cabaret.removeParent(change, parent, allow);
-  if ((await despite(`Remove ${parent} as a parent of ${change}`, "Remove Anyway", [], attempt)) === undefined) {
+  const attempt = (allow: Set<SafeguardKind>) => cabaret.removeParent(change, parent, allow);
+  if ((await despite(`Remove ${parent} as a parent of ${change}`, "Remove Anyway", attempt)) === undefined) {
     return undefined;
   }
   return `removed ${parent} as a parent of ${change}`;
@@ -1561,19 +1517,16 @@ async function releaseHere(change: ChangeId): Promise<boolean> {
  * Delete this window's workspace, which is left for last as the window's `Cabaret` is opened in it.
  * Closing the folder restarts the extension host, so nothing may follow it.
  */
-async function deleteHereAndCloseFolder(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<void> {
-  if (await deleteWorkspace(cabaret, change, allow)) {
+async function deleteHereAndCloseFolder(cabaret: Cabaret, change: ChangeId): Promise<void> {
+  if (await deleteWorkspace(cabaret, change)) {
     await vscode.commands.executeCommand("workbench.action.closeFolder");
   }
 }
 
-/**
- * Delete the workspace holding `change`, allowing `allow`, and asking again should other
- * safeguards refuse it; false when the user declines.
- */
-async function deleteWorkspace(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<boolean> {
-  const deleting = (allow: SafeguardKind[]) => cabaret.workspaceRemove(change, allow);
-  return (await despite(`Delete the workspace holding ${change}`, "Delete Anyway", allow, deleting)) !== undefined;
+/** Delete the workspace holding `change`, asking should safeguards refuse it; false when the user declines. */
+async function deleteWorkspace(cabaret: Cabaret, change: ChangeId): Promise<boolean> {
+  const deleting = (allow: Set<SafeguardKind>) => cabaret.workspaceRemove(change, allow);
+  return (await despite(`Delete the workspace holding ${change}`, "Delete Anyway", deleting)) !== undefined;
 }
 
 /**
@@ -1590,8 +1543,6 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       doomed.set(change, workspace);
     }
   }
-  const safeguards = await safeguarded(changes, (change) => cabaret.landSafeguards(change));
-  const discarding = await safeguarded([...doomed.keys()], (change) => cabaret.workspaceRemoveSafeguards(change));
   const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
   const landAndDelete = `Land and Delete ${noun}`;
   const landOnly = doomed.size === 0 ? "Land" : `Land and Keep ${noun}`;
@@ -1599,16 +1550,12 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
     doomed.size === 0
       ? "This cannot be undone."
       : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`;
-  const lost = discarding.size === 0 ? "" : `\n\nDeleting them would also discard:\n${describeSafeguards(discarding)}`;
   const choice = await vscode.window.showWarningMessage(
     `Land ${words(changes)}?`,
-    { modal: true, detail: irreversible + lost },
+    { modal: true, detail: irreversible },
     ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
   if (choice === undefined) {
-    return undefined;
-  }
-  if (!(await accept(`Land ${words(safeguards.keys())}`, "Land Anyway", safeguards))) {
     return undefined;
   }
   const deleting = choice === landAndDelete;
@@ -1618,8 +1565,8 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landing = (allow: SafeguardKind[]) => cabaret.land(change, allow);
-      const land = await despite(`Land ${change}`, "Land Anyway", allowed(safeguards, change), landing);
+      const landing = (allow: Set<SafeguardKind>) => cabaret.land(change, allow);
+      const land = await despite(`Land ${change}`, "Land Anyway", landing);
       if (land === undefined) {
         return { report: `did not land ${change}`, complete: false };
       }
@@ -1628,20 +1575,16 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };
       }
-      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+      if (!(await deleteWorkspace(cabaret, change))) {
         return { report: `${landed}; kept workspace ${workspace}`, complete: true };
       }
       return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
   };
 }
 
 async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
-  const discarding = await safeguarded(changes, (change) => cabaret.workspaceRemoveSafeguards(change));
-  if (!(await accept(`Delete the workspaces holding ${words(discarding.keys())}`, "Delete Anyway", discarding))) {
-    return undefined;
-  }
   const here = await changeHere(cabaret, changes);
   if (here !== undefined && !(await releaseHere(here))) {
     return undefined;
@@ -1651,21 +1594,21 @@ async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Prom
       if (change === here) {
         return { report: `left the workspace holding ${change}, open in this window, for last`, complete: true };
       }
-      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+      if (!(await deleteWorkspace(cabaret, change))) {
         return { report: `did not delete the workspace holding ${change}`, complete: false };
       }
       return { report: `deleted the workspace holding ${change}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
   };
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step> {
   const { archived } = await cabaret.change(change);
   const [verb, done] = archived ? ["Unarchive", "unarchived"] : ["Archive", "archived"];
-  const toggling = (allow: SafeguardKind[]) =>
+  const toggling = (allow: Set<SafeguardKind>) =>
     archived ? cabaret.unarchive(change, allow) : cabaret.archive(change, allow);
-  if ((await despite(`${verb} ${change}`, `${verb} Anyway`, [], toggling)) === undefined) {
+  if ((await despite(`${verb} ${change}`, `${verb} Anyway`, toggling)) === undefined) {
     return { report: `did not ${verb.toLowerCase()} ${change}`, complete: false };
   }
   return { report: `${done} ${change}`, complete: true };
@@ -1678,8 +1621,8 @@ async function toggleEndorsed(cabaret: Cabaret, change: ChangeId): Promise<Step>
     await cabaret.unendorse(change);
     return { report: `withdrew endorsement of ${change}`, complete: true };
   }
-  const endorsing = (allow: SafeguardKind[]) => cabaret.endorse(change, allow);
-  if ((await despite(`Endorse ${change}`, "Endorse Anyway", [], endorsing)) === undefined) {
+  const endorsing = (allow: Set<SafeguardKind>) => cabaret.endorse(change, allow);
+  if ((await despite(`Endorse ${change}`, "Endorse Anyway", endorsing)) === undefined) {
     return { report: `did not endorse ${change}`, complete: false };
   }
   return { report: `endorsed ${change}`, complete: true };
@@ -1702,16 +1645,13 @@ async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promis
       doomed.set(change, workspace);
     }
   }
-  const discarding = await safeguarded([...doomed.keys()], (change) => cabaret.workspaceRemoveSafeguards(change));
   let deleting = false;
   if (doomed.size > 0) {
     const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
     const archiveAndDelete = `Archive and Delete ${noun}`;
-    const lost =
-      discarding.size === 0 ? "" : `\n\nDeleting them would also discard:\n${describeSafeguards(discarding)}`;
     const choice = await vscode.window.showWarningMessage(
       `Archive ${words(doomed.keys())}?`,
-      { modal: true, detail: `These workspaces will have nothing left to do: ${words(doomed.values())}.${lost}` },
+      { modal: true, detail: `These workspaces will have nothing left to do: ${words(doomed.values())}.` },
       archiveAndDelete,
       `Archive and Keep ${noun}`,
     );
@@ -1727,26 +1667,24 @@ async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promis
   return {
     order: [...unarchiving, ...archiving.reverse()],
     step: async (change) => {
-      // TODO-someday(joel): archive safeguards refuse per step, after the workspace dialog; checking
-      // them up front, as landSafeguards does for land, would fold them into that one dialog.
       const toggled = await toggleArchived(cabaret, change);
       const workspace = doomed.get(change);
       if (!toggled.complete || !deleting || workspace === undefined || change === here) {
         return toggled;
       }
-      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+      if (!(await deleteWorkspace(cabaret, change))) {
         return { report: `${toggled.report}; kept workspace ${workspace}`, complete: true };
       }
       return { report: `${toggled.report}; deleted workspace ${workspace}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
   };
 }
 
 /** Commit `files` of `change`, all when empty, asking before committing despite safeguards. */
 async function commit(cabaret: Cabaret, change: ChangeId, files: ChangedFile[]): Promise<boolean> {
-  const committing = (allow: SafeguardKind[]) => cabaret.commit(change, files, allow);
-  return (await despite(`Commit to ${change}`, "Commit Anyway", [], committing)) !== undefined;
+  const committing = (allow: Set<SafeguardKind>) => cabaret.commit(change, files, allow);
+  return (await despite(`Commit to ${change}`, "Commit Anyway", committing)) !== undefined;
 }
 
 async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
@@ -1940,7 +1878,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
     plannedSequence("cabaret.land", provider, planLand),
-    plannedSequence("cabaret.rebase", provider, planRebase),
+    sequencedAction("cabaret.rebase", provider, rebase),
     plannedSequence("cabaret.toggleArchived", provider, planToggleArchived),
     sequencedAction("cabaret.toggleEndorsed", provider, toggleEndorsed),
     action("cabaret.commitAll", provider, commitAll),
