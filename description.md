@@ -1,0 +1,1 @@
+Use Vec for --allow at the clap layer, collecting into a BTreeSet for the lib. clap's derive only recognizes Vec/Option by name, so BTreeSet fields became a required single value and panicked on access (clap-rs/clap#3114).
