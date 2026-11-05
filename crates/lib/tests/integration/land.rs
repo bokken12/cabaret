@@ -183,7 +183,10 @@ fn unreviewed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.commit("child", &[("more.txt", "more\n")]);
     let tip = fixture.tip("main");
-    expect![[r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#]].assert_eq(&land(&fixture, "child"));
+    expect![[
+        r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#
+    ]]
+    .assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
@@ -197,7 +200,8 @@ fn unendorsed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.cabaret.unendorse(&id("child")).unwrap();
     let tip = fixture.tip("main");
-    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("alice@example.com")})"#]].assert_eq(&land(&fixture, "child"));
+    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("alice@example.com")})"#]]
+        .assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
@@ -224,11 +228,9 @@ fn each_safeguard_needs_allowing() {
         "child",
         &BTreeSet::from([SafeguardKind::Unreviewed]),
     ));
-    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land_allowing(
-        &fixture,
-        "child",
-        &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
-    ));
+    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(
+        &land_allowing(&fixture, "child", &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner])),
+    );
 }
 
 #[test]
