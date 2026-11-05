@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
 use gix::{
     ThreadSafeRepository,
     lock::{Marker, acquire::Fail},
@@ -176,6 +176,7 @@ impl Store {
     /// other changes through the context.
     pub fn transact_<T, F>(
         &self,
+        allow: &BTreeSet<SafeguardKind>,
         metadata_ids: &[&ChangeIdRef],
         branch_ops: &[BranchOp<'_>],
         workspace_ops: &[WorkspaceOp<'_>],
@@ -196,7 +197,7 @@ impl Store {
         let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
         locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
         // TODO(joel): retry on ref contention instead of surfacing it
-        let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
+        let ctx = TransactionContext::new(self.repo.to_thread_local(), locks, allow);
 
         // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
@@ -214,6 +215,7 @@ impl Store {
             workspaces.push(op.before(&ctx)?);
         }
 
+        // TODO(joel): this seems like maybe the wrong semantics? maybe we should just automatically lock the branch?
         // A fast-forward writes a workspace's files under only the lock of the branch it holds,
         // so everything else writing there must hold that lock too.
         for workspace in &workspaces {
@@ -225,6 +227,8 @@ impl Store {
         }
 
         let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
+
+        ctx.confirm()?;
 
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
@@ -285,6 +289,7 @@ impl Store {
     /// Equivalent to `transact_` but with const sizes
     pub fn transact<const L: usize, const M: usize, const N: usize, T, F>(
         &self,
+        allow: &BTreeSet<SafeguardKind>,
         metadata_ids: &[&ChangeIdRef; L],
         branch_ops: &[BranchOp<'_>; M],
         workspace_ops: &[WorkspaceOp<'_>; N],
@@ -299,6 +304,7 @@ impl Store {
         ) -> Result<T>,
     {
         self.transact_(
+            allow,
             metadata_ids.as_slice(),
             branch_ops.as_slice(),
             workspace_ops.as_slice(),
@@ -317,25 +323,30 @@ impl Store {
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>) -> Result<T>,
     {
-        self.transact(&[], &[], &[], |ctx, [], [], []| f(ctx))
+        self.transact(&BTreeSet::new(), &[], &[], &[], |ctx, [], [], []| f(ctx))
     }
 
+    // TODO(joel): think about this?
     /// Bring `id`'s log up to date with origin's; see [`Metadata::merge_origin`]. A merge is a
     /// transaction of its own: it writes the log commits it merges rather than actions taken now,
     /// so no in-flight metadata can express it.
     pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
-        let ctx =
-            TransactionContext::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?);
+        let allow = BTreeSet::new();
+        let ctx = TransactionContext::new(
+            self.repo.to_thread_local(),
+            self.lock(Resource::Metadata, [id].into_iter())?,
+            &allow,
+        );
         if let Some(edit) = ctx.metadata(id)?.merge_origin()? {
             ctx.repo.edit_reference(edit)?;
         }
         Ok(())
     }
 
-    pub fn update_metadata<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
+    pub fn update_metadata<T, F>(&self, allow: &BTreeSet<SafeguardKind>, id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
     {
-        self.transact(&[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
+        self.transact(allow, &[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
     }
 }

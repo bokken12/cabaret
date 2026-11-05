@@ -1,10 +1,11 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, FileVersion, Identity, RepoPath, Result, RevisionId, TreeId, WorkspaceId,
-    WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, Error, FileVersion, Identity, RepoPath, Result, RevisionId, TreeId,
+    WorkspaceId, WorkspaceIdRef,
+    safeguard::{Safeguard, SafeguardKind},
 };
-use elsa::FrozenBTreeMap;
+use elsa::{FrozenBTreeMap, FrozenVec};
 use gix::{
     Repository,
     bstr::{BString, ByteSlice},
@@ -12,7 +13,7 @@ use gix::{
     objs::Commit,
     refs::TargetRef,
 };
-use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
@@ -26,6 +27,9 @@ pub struct TransactionContext<'ctx> {
     metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
     branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
     workspaces: FrozenBTreeMap<WorkspaceId, Box<Workspace<'ctx>>>,
+    // TODO-someday(jm): remove `allowed_safeguards`?
+    allowed_safeguards: &'ctx BTreeSet<SafeguardKind>,
+    violated_safeguards: FrozenVec<Box<Safeguard>>,
     _locks: Vec<Marker>,
 }
 
@@ -36,15 +40,42 @@ impl fmt::Debug for TransactionContext<'_> {
 }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub fn new(repo: Repository, locks: Vec<Marker>) -> Self {
+    pub fn new(repo: Repository, locks: Vec<Marker>, allowed_safeguards: &'ctx BTreeSet<SafeguardKind>) -> Self {
         Self {
             repo,
             metadata: FrozenBTreeMap::new(),
             branches: FrozenBTreeMap::new(),
             workspaces: FrozenBTreeMap::new(),
+            allowed_safeguards,
+            violated_safeguards: FrozenVec::new(),
             _locks: locks,
         }
     }
+
+    /// Checks `safeguard`. If not allowed, the transaction will fail.
+    pub fn check(&self, safeguard: Safeguard) {
+        if !self.allowed_safeguards.contains(&SafeguardKind::from(&safeguard)) {
+            self.violated_safeguards.push(Box::new(safeguard));
+        }
+    }
+
+    // TODO(joel): delete this
+    pub fn check_all(&self, safeguards: Vec<Safeguard>) {
+        for safeguard in safeguards {
+            self.check(safeguard);
+        }
+    }
+
+    pub fn confirm(&self) -> Result<()> {
+        let refused = self.violated_safeguards.iter().cloned().collect();
+        if let Some(refused) = NEVec::try_from_vec(refused) {
+            Err(Error::Refused(refused))?
+        };
+        Ok(())
+    }
+
+    // TODO(joel): this shouldn't be necessary
+    pub fn allows(&self, safeguard: &SafeguardKind) -> bool { self.allowed_safeguards.contains(safeguard) }
 
     /// `change_id`'s metadata as committed when first asked for.
     pub fn metadata(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Metadata<'ctx>> {

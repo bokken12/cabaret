@@ -1,9 +1,8 @@
 //! Owners: who shepherds a change, and the safeguards on removing them.
 
-use cabaret_lib::{
-    Error, Identity,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, Identity, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -36,7 +35,7 @@ fn owners(fixture: &Fixture) -> String {
 #[test]
 fn removing_yourself_needs_no_allowing() {
     let fixture = co_owned();
-    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &alice(), &Allow::default())));
+    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &alice(), &BTreeSet::new())));
     expect!["bob@example.com"].assert_eq(&owners(&fixture));
 }
 
@@ -46,10 +45,10 @@ fn removing_others_refuses_unless_allowed() {
     expect!["refused: bob@example.com would no longer own it"].assert_eq(&shown(fixture.cabaret.remove_owner(
         &id("change"),
         &bob(),
-        &Allow::default(),
+        &BTreeSet::new(),
     )));
     expect!["alice@example.com bob@example.com"].assert_eq(&owners(&fixture));
-    let allow = Allow::from_iter([SafeguardKind::RemovesOthers]);
+    let allow = BTreeSet::from([SafeguardKind::RemovesOthers]);
     expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &bob(), &allow)));
     expect!["alice@example.com"].assert_eq(&owners(&fixture));
 }
@@ -57,13 +56,13 @@ fn removing_others_refuses_unless_allowed() {
 #[test]
 fn leaving_no_owners_refuses_unless_allowed() {
     let fixture = co_owned();
-    let everyone = Allow::from_iter([SafeguardKind::RemovesOthers]);
+    let everyone = BTreeSet::from([SafeguardKind::RemovesOthers]);
     expect!["refused: it would have no owners"].assert_eq(&shown(fixture.cabaret.set_owners(
         &id("change"),
         &[].into(),
         &everyone,
     )));
-    let allow = Allow::from_iter([SafeguardKind::RemovesOthers, SafeguardKind::Ownerless]);
+    let allow = BTreeSet::from([SafeguardKind::RemovesOthers, SafeguardKind::Ownerless]);
     expect!["done"].assert_eq(&shown(fixture.cabaret.set_owners(&id("change"), &[].into(), &allow)));
     expect![""].assert_eq(&owners(&fixture));
 }

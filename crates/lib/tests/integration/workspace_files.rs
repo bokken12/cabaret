@@ -1,7 +1,9 @@
 //! The files a change's workspace has on disk beyond the change's tip: what committing would
 //! record, before it is.
 
-use cabaret_lib::{Pathspec, safeguard::Allow};
+use std::collections::BTreeSet;
+
+use cabaret_lib::Pathspec;
 use expect_test::expect;
 
 use super::{
@@ -68,7 +70,7 @@ fn pathspec_narrows() {
 fn committing_moves_files_into_the_diff() {
     let fixture = two_changes();
     fixture.write("added.txt", "added\n");
-    fixture.cabaret.commit(&id("one"), &[], &Allow::default()).unwrap();
+    fixture.cabaret.commit(&id("one"), &[], &BTreeSet::new()).unwrap();
     expect!["[]"].assert_eq(&workspace_files(&fixture, "one", &[]));
     expect![[r#"
         one

@@ -9,7 +9,7 @@
 
 use std::{
     cell::Cell,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -18,7 +18,7 @@ use std::{
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Pathspec, Reviewing, RevisionId, TreeId,
     log::{self, LogAction},
-    safeguard::{Allow, SafeguardKind},
+    safeguard::SafeguardKind,
 };
 use expect_test::expect;
 use gix::{
@@ -165,18 +165,18 @@ impl Fixture {
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret.create(change, &NEBTreeSet::new(id(parent)), owner, &Allow::default()).unwrap();
+        self.cabaret.create(change, &NEBTreeSet::new(id(parent)), owner, &BTreeSet::new()).unwrap();
     }
 
     /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.
     pub fn archive(&self, change: &str) {
-        let allow = Allow::from_iter([SafeguardKind::OpenChildren, SafeguardKind::Permanent]);
+        let allow = BTreeSet::from([SafeguardKind::OpenChildren, SafeguardKind::Permanent]);
         self.cabaret.archive(&id(change), &allow).unwrap();
     }
 
     /// Put `change` up for review by its owners.
     pub fn request_review(&self, change: &str) {
-        self.cabaret.set_reviewing(&id(change), Reviewing::Owners, &Allow::default()).unwrap();
+        self.cabaret.set_reviewing(&id(change), Reviewing::Owners, &BTreeSet::new()).unwrap();
     }
 
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
@@ -187,7 +187,7 @@ impl Fixture {
     }
 
     /// Endorse `change` as the fixture's identity.
-    pub fn endorse(&self, change: &str) { self.cabaret.endorse(&id(change), &Allow::default()).unwrap(); }
+    pub fn endorse(&self, change: &str) { self.cabaret.endorse(&id(change), &BTreeSet::new()).unwrap(); }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
     pub fn commit(&self, change: &str, files: Files) -> RevisionId {
@@ -590,7 +590,7 @@ pub fn scene() -> Fixture {
     fixture.create("fork-right", "fork-base", &bob());
     fixture.commit("fork-right", &[("fork-right.txt", "fork-right\n")]);
     fixture.create("fork-join", "fork-left", &carol());
-    fixture.cabaret.add_parent(&id("fork-join"), &id("fork-right"), &Allow::default()).unwrap();
+    fixture.cabaret.add_parent(&id("fork-join"), &id("fork-right"), &BTreeSet::new()).unwrap();
     fixture.merge("fork-join", "fork-right", &[("fork-join.txt", "fork-join\n")]);
 
     fixture.create("empty", "main", &alice());

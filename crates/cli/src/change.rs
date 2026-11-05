@@ -1,9 +1,8 @@
-use std::io::Write;
+use std::{collections::BTreeSet, io::Write};
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result, Reviewing,
-    RevisionId, name,
-    safeguard::{Allow, SafeguardKind},
+    RevisionId, name, safeguard::SafeguardKind,
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -22,12 +21,12 @@ pub enum OwnersCommand {
     Remove {
         owner: Identity,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Set {
         owners: Vec<Identity>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
 }
 
@@ -42,13 +41,13 @@ pub enum ParentsCommand {
         #[arg(add = change_completer())]
         parent: ChangeId,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Set {
         #[arg(required = true, add = change_completer())]
@@ -66,7 +65,7 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Commit {
         #[arg(long, add = change_completer())]
@@ -74,7 +73,7 @@ pub enum ChangeCommand {
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Create {
         name: String,
@@ -83,7 +82,7 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer(), conflicts_with = "parent")]
         child: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     /// Set the change's description, given or else read from stdin; blank clears it.
     Describe {
@@ -121,13 +120,13 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -136,7 +135,7 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     /// Mark the files matching the given pathspecs as reviewed by you, among those left for you to review or
     /// marked by you before.
@@ -168,7 +167,7 @@ pub enum ChangeCommand {
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     /// Set who the change is up for review by.
     Reviewing {
@@ -177,7 +176,7 @@ pub enum ChangeCommand {
         #[arg(value_parser = reviewing())]
         reviewing: Reviewing,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     Show {
         #[arg(long, add = change_completer())]
@@ -201,25 +200,25 @@ impl ChangeCommand {
                 let change = or_current(change)?;
                 match undo {
                     false => {
-                        cabaret.archive(&change, &Allow::from_iter(allow))?;
+                        cabaret.archive(&change, &allow)?;
                     }
                     true => {
-                        cabaret.unarchive(&change, &Allow::from_iter(allow))?;
+                        cabaret.unarchive(&change, &allow)?;
                     }
                 }
             }
             ChangeCommand::Commit { change, pathspecs, allow } => {
                 let change = or_current(change)?;
-                cabaret.commit(&change, &pathspecs, &Allow::from_iter(allow))?;
+                cabaret.commit(&change, &pathspecs, &allow)?;
                 println!("committed to {change}");
             }
             ChangeCommand::Create { name, parent, child, allow } => {
                 let owner = &cabaret.identity()?;
-                let allow = &Allow::from_iter(allow);
+                let allow = &allow;
                 match (child, NEVec::try_from_vec(parent)) {
                     (Some(_), Some(_)) => unreachable!("clap rejects --parent with --child"),
                     (Some(child), None) => {
-                        let id = cabaret.create_parent(&name, &child, owner)?;
+                        let id = cabaret.create_parent(&name, &child, owner, allow)?;
                         println!("created {id} as parent of {child}");
                     }
                     (None, Some(parents)) => {
@@ -256,16 +255,16 @@ impl ChangeCommand {
                 println!("discarded from {change}");
             }
             ChangeCommand::Endorse { change, undo, allow } => {
-                endorse(cabaret, &or_current(change)?, undo, &Allow::from_iter(allow))?;
+                endorse(cabaret, &or_current(change)?, undo, &allow)?;
             }
             ChangeCommand::Land { change, allow } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change, &Allow::from_iter(allow))?;
+                let parent = cabaret.land(&change, &allow)?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo, allow } => {
                 let change = or_current(change)?;
-                cabaret.set_permanent(&change, !undo, &Allow::from_iter(allow))?;
+                cabaret.set_permanent(&change, !undo, &allow)?;
             }
             ChangeCommand::Mark { change, tip, pathspecs } => {
                 let change = or_current(change)?;
@@ -281,10 +280,10 @@ impl ChangeCommand {
                     OwnersCommand::Show => return Err("change owners show is not implemented yet".into()),
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner, allow } => {
-                        cabaret.remove_owner(change, &owner, &Allow::from_iter(allow))?;
+                        cabaret.remove_owner(change, &owner, &allow)?;
                     }
                     OwnersCommand::Set { owners, allow } => {
-                        cabaret.set_owners(change, &owners.into_iter().collect(), &Allow::from_iter(allow))?;
+                        cabaret.set_owners(change, &owners.into_iter().collect(), &allow)?;
                     }
                 }
             }
@@ -293,14 +292,14 @@ impl ChangeCommand {
                 match command {
                     ParentsCommand::Show => return Err("change parents show is not implemented yet".into()),
                     ParentsCommand::Create { name } => {
-                        let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
+                        let id = cabaret.create_parent(&name, change, &cabaret.identity()?, &BTreeSet::new())?;
                         println!("created {id} as parent of {change}");
                     }
                     ParentsCommand::Add { parent, allow } => {
-                        cabaret.add_parent(change, &parent, &Allow::from_iter(allow))?;
+                        cabaret.add_parent(change, &parent, &allow)?;
                     }
                     ParentsCommand::Remove { parent, allow } => {
-                        cabaret.remove_parent(change, &parent, &Allow::from_iter(allow))?;
+                        cabaret.remove_parent(change, &parent, &allow)?;
                     }
                     ParentsCommand::Fix => cabaret.fix_parents(change)?,
                     ParentsCommand::Set { parents: _ } => {
@@ -309,11 +308,11 @@ impl ChangeCommand {
                 }
             }
             ChangeCommand::Rebase { change, onto, allow } => {
-                rebase(cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
+                rebase(cabaret, &or_current(change)?, onto.as_deref(), &allow)?;
             }
             ChangeCommand::Reviewing { change, reviewing, allow } => {
                 let change = or_current(change)?;
-                cabaret.set_reviewing(&change, reviewing, &Allow::from_iter(allow))?;
+                cabaret.set_reviewing(&change, reviewing, &allow)?;
                 println!("{change} reviewing: {reviewing}");
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
@@ -352,7 +351,7 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
     Ok(())
 }
 
-fn endorse(cabaret: &Cabaret, change: &ChangeIdRef, undo: bool, allow: &Allow) -> Result<()> {
+fn endorse(cabaret: &Cabaret, change: &ChangeIdRef, undo: bool, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
     match undo {
         false => {
             cabaret.endorse(change, allow)?;
@@ -366,7 +365,12 @@ fn endorse(cabaret: &Cabaret, change: &ChangeIdRef, undo: bool, allow: &Allow) -
     Ok(())
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: &Allow) -> Result<()> {
+fn rebase(
+    cabaret: &Cabaret,
+    change: &ChangeId,
+    onto: Option<&ChangeIdRef>,
+    allow: &BTreeSet<SafeguardKind>,
+) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
     let rebase = cabaret.rebase(change, onto, allow)?;
     match rebase.merged.is_empty() {

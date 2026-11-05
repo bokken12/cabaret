@@ -1,9 +1,6 @@
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
-use cabaret_lib::{
-    Cabaret, ChangeId, Result, WorkspaceId,
-    safeguard::{Allow, SafeguardKind},
-};
+use cabaret_lib::{Cabaret, ChangeId, Result, WorkspaceId, safeguard::SafeguardKind};
 use clap::{Subcommand, ValueHint};
 
 use crate::args::{change_completer, safeguard_kind};
@@ -26,7 +23,7 @@ pub enum WorkspaceCommand {
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
     List,
     /// Find the path of the workspace holding a change.
@@ -43,7 +40,7 @@ pub enum WorkspaceCommand {
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: Vec<SafeguardKind>,
+        allow: BTreeSet<SafeguardKind>,
     },
 }
 
@@ -59,7 +56,7 @@ impl WorkspaceCommand {
                     Some(workspace) => workspace,
                     None => cabaret.workspace_current()?,
                 };
-                cabaret.workspace_switch(workspace.to_ref(), &switch_to, &Allow::from_iter(allow))?;
+                cabaret.workspace_switch(workspace.to_ref(), &switch_to, &allow)?;
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -84,7 +81,7 @@ impl WorkspaceCommand {
             }
             WorkspaceCommand::Remove { change, path, allow } => {
                 let workspace = named(cabaret, change, path)?.expect("clap requires one of change or path");
-                cabaret.workspace_remove(workspace.to_ref(), &Allow::from_iter(allow))?;
+                cabaret.workspace_remove(workspace.to_ref(), &allow)?;
             }
         }
 

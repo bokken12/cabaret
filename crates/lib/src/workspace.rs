@@ -4,10 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_transaction::{BranchOp, Head, Status, Workspace, WorkspaceOp};
+use cabaret_transaction::{BranchOp, Head, Status, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, Result, WorkspaceId, WorkspaceIdRef,
-    safeguard::{Allow, Safeguard, SafeguardKind},
+    safeguard::{Safeguard, SafeguardKind},
 };
 use gix::bstr::ByteSlice;
 
@@ -77,6 +77,7 @@ impl Cabaret {
             None => self.default_workspace_path(change_id)?,
         };
         self.store.transact(
+            &BTreeSet::new(),
             &[],
             &[BranchOp::Update(change_id)],
             &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.to_owned()) }],
@@ -113,32 +114,26 @@ impl Cabaret {
         Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
     }
 
-    /// The safeguards that would refuse removing `workspace_id` now, for a frontend to ask about first.
-    pub fn workspace_remove_safeguards(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<Vec<Safeguard>> {
-        self.store.query(|ctx| remove_workspace_safeguards(ctx.workspace(workspace_id)?))
-    }
-
     /// Remove `workspace_id`; allowing uncommitted changes deletes them with it. Removing a
     /// workspace needs the branch it holds, which is only known once read; the transaction
     /// re-checks it under the lock.
-    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>, allow: &Allow) -> Result<()> {
+    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
-        let remove = |workspace: &mut Workspace<'_>| {
+
+        self.store.transact(allow, &[], &[], &delete, |ctx, [], [], [workspace]| {
             if workspace_id == WorkspaceIdRef::Main {
                 Err("the main workspace cannot be removed")?;
             }
-            allow.check(remove_workspace_safeguards(workspace)?)?;
-            workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
+
+            match workspace.status()? {
+                Status::Clean => (),
+                Status::Untracked | Status::Modified => {
+                    ctx.check(Safeguard::Uncommitted { workspace: workspace.id().into_owned() })
+                }
+            };
+            workspace.drop_local_changes = ctx.allows(&SafeguardKind::Uncommitted);
             Ok(())
-        };
-        match self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))? {
-            Some(held) => {
-                self.store.transact(&[], &[BranchOp::Update(&held)], &delete, |_ctx, [], [_branch], [workspace]| {
-                    remove(workspace)
-                })
-            }
-            None => self.store.transact(&[], &[], &delete, |_ctx, [], [], [workspace]| remove(workspace)),
-        }
+        })
     }
 
     pub fn workspace_prune(&self) -> Result<Prune> {
@@ -156,6 +151,7 @@ impl Cabaret {
         let mut prune = Prune::default();
         for (workspace, change) in archived {
             let removed = self.store.transact(
+                &BTreeSet::new(),
                 &[&change],
                 &[BranchOp::Update(&change)],
                 &[WorkspaceOp::Delete { id: workspace.to_ref() }],
@@ -183,32 +179,18 @@ impl Cabaret {
         &self,
         workspace_id: WorkspaceIdRef<'_>,
         change_id: &ChangeIdRef,
-        allow: &Allow,
+        allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
         let update = [WorkspaceOp::Update { id: workspace_id }];
-        let switch = |workspace: &mut Workspace<'_>| {
+        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &update, |ctx, [], [_to], [workspace]| {
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
             if workspace.status()? == Status::Modified {
-                allow.check(vec![Safeguard::Uncommitted { workspace: workspace_id.into_owned() }])?;
+                ctx.check(Safeguard::Uncommitted { workspace: workspace_id.into_owned() });
             }
-            workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
+            workspace.drop_local_changes = ctx.allows(&SafeguardKind::Uncommitted);
             workspace.head = Head::Change(change_id.to_owned());
             Ok(())
-        };
-        let held = self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))?;
-        match held.filter(|held| **held != *change_id) {
-            Some(held) => self.store.transact(
-                &[],
-                &[BranchOp::Update(change_id), BranchOp::Update(&held)],
-                &update,
-                |_ctx, [], [_to, _from], [workspace]| switch(workspace),
-            ),
-            None => {
-                self.store.transact(&[], &[BranchOp::Update(change_id)], &update, |_ctx, [], [_to], [workspace]| {
-                    switch(workspace)
-                })
-            }
-        }
+        })
     }
 
     /// Whether a workspace sits at the default location for the change it holds, which names it
@@ -223,13 +205,4 @@ impl Cabaret {
         // A default location that does not exist cannot be where the workspace is.
         Ok(fs::canonicalize(self.default_workspace_path(&held)?).is_ok_and(|default| default == path))
     }
-}
-
-fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguard>> {
-    Ok(match workspace.status()? {
-        Status::Clean => Vec::new(),
-        Status::Untracked | Status::Modified => {
-            vec![Safeguard::Uncommitted { workspace: workspace.id().into_owned() }]
-        }
-    })
 }

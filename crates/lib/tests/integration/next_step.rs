@@ -1,11 +1,8 @@
 //! Next steps: the first thing standing between a change and landing, as its show page names it.
 
-use std::fmt::Write as _;
+use std::{collections::BTreeSet, fmt::Write as _};
 
-use cabaret_lib::{
-    Hints, Reviewing, Scope,
-    safeguard::{Allow, SafeguardKind},
-};
+use cabaret_lib::{Hints, Reviewing, Scope, safeguard::SafeguardKind};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -19,7 +16,7 @@ fn next_step(fixture: &Fixture, change: &str) -> String {
 #[test]
 fn scene_next_steps_up_for_review() {
     let fixture = scene();
-    let allow = Allow::from_iter([SafeguardKind::NonOwner]);
+    let allow = BTreeSet::from([SafeguardKind::NonOwner]);
     for change in fixture.cabaret.changes().unwrap() {
         fixture.cabaret.set_reviewing(&change, Reviewing::Owners, &allow).unwrap();
     }
@@ -55,7 +52,7 @@ fn unreviewed_change_requests_review_until_up_for_it() {
     expect!["request review"].assert_eq(&next_step(&fixture, "single"));
     fixture.request_review("single");
     expect!["[r] review by alice@example.com"].assert_eq(&next_step(&fixture, "single"));
-    fixture.cabaret.set_reviewing(&id("single"), Reviewing::All, &Allow::default()).unwrap();
+    fixture.cabaret.set_reviewing(&id("single"), Reviewing::All, &BTreeSet::new()).unwrap();
     expect!["[r] review by alice@example.com"].assert_eq(&next_step(&fixture, "single"));
 }
 
@@ -82,7 +79,7 @@ fn reviewed_change_awaits_endorsement() {
 fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     let fixture = scene();
     fixture.cabaret.add_owner(&id("fork-join"), &alice()).unwrap();
-    let allow = Allow::from_iter([SafeguardKind::RemovesOthers]);
+    let allow = BTreeSet::from([SafeguardKind::RemovesOthers]);
     fixture.cabaret.remove_owner(&id("fork-join"), &carol(), &allow).unwrap();
     fixture.mark_all("fork-join");
     fixture.endorse("fork-join");
@@ -98,7 +95,7 @@ fn conflicted() -> Fixture {
     fixture.create("grandchild", "child", &alice());
     fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("child"), None, &Allow::default()).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, &BTreeSet::new()).unwrap();
     fixture
 }
 
@@ -124,7 +121,7 @@ fn conflict_between_parents_is_resolved_in_their_join() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &Allow::default()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &BTreeSet::new()).unwrap();
     expect!["resolve conflicts in file.txt"].assert_eq(&next_step(&fixture, "join"));
 }
 

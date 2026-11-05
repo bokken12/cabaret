@@ -2,16 +2,10 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use nonempty_collections::{NEBTreeSet, NEVec};
+use nonempty_collections::NEBTreeSet;
 use strum::{Display, EnumDiscriminants, EnumString, VariantNames};
 
-use crate::{
-    change_id::ChangeId,
-    error::{Error, Result},
-    identity::Identity,
-    repo_path::RepoPath,
-    workspace_id::WorkspaceId,
-};
+use crate::{change_id::ChangeId, identity::Identity, repo_path::RepoPath, workspace_id::WorkspaceId};
 
 /// Any action's safeguard.
 #[derive(Debug, Clone, PartialEq, Eq, EnumDiscriminants)]
@@ -110,34 +104,11 @@ impl fmt::Display for Safeguard {
             Self::RemovesOthers { owners } => write!(f, "{} would no longer own it", joined(owners)),
             Self::Uncommitted { workspace } => write!(f, "workspace {workspace} has uncommitted changes"),
             Self::Unendorsed { owners } => {
-                let verb = if owners.len().get() == 1 { "has" } else { "have" };
-                write!(f, "{} {verb} not endorsed it", joined(owners))
+                write!(f, "not all owners have endorsed (remaining: {:?})", owners)
             }
             Self::Unreviewed { reviewers } => {
-                let verb = if reviewers.len().get() == 1 { "has" } else { "have" };
-                write!(f, "{} {verb} files left to review", joined(reviewers))
+                write!(f, "not all review obligations have been fulfilled (remaining: {:?})", reviewers)
             }
         }
     }
-}
-
-/// The kinds of safeguard the caller allows, letting the action go ahead despite them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Allow(BTreeSet<SafeguardKind>);
-
-impl Allow {
-    pub fn allows(&self, kind: SafeguardKind) -> bool { self.0.contains(&kind) }
-
-    /// Refuse the action if any of `safeguards` is not allowed.
-    pub fn check(&self, safeguards: Vec<Safeguard>) -> Result<()> {
-        let refused = safeguards.into_iter().filter(|safeguard| !self.allows(SafeguardKind::from(safeguard))).collect();
-        match NEVec::try_from_vec(refused) {
-            Some(refused) => Err(Error::Refused(refused)),
-            None => Ok(()),
-        }
-    }
-}
-
-impl FromIterator<SafeguardKind> for Allow {
-    fn from_iter<I: IntoIterator<Item = SafeguardKind>>(kinds: I) -> Self { Self(kinds.into_iter().collect()) }
 }

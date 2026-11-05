@@ -1,9 +1,8 @@
 //! Archiving: setting a change aside, and the safeguards on doing so or undoing it.
 
-use cabaret_lib::{
-    Error,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};
@@ -28,19 +27,19 @@ fn shown(attempt: cabaret_lib::Result<()>) -> String {
     }
 }
 
-fn archive(fixture: &Fixture, change: &str, allow: &Allow) -> String {
+fn archive(fixture: &Fixture, change: &str, allow: &BTreeSet<SafeguardKind>) -> String {
     shown(fixture.cabaret.archive(&id(change), allow))
 }
 
-fn unarchive(fixture: &Fixture, change: &str, allow: &Allow) -> String {
+fn unarchive(fixture: &Fixture, change: &str, allow: &BTreeSet<SafeguardKind>) -> String {
     shown(fixture.cabaret.unarchive(&id(change), allow))
 }
 
 #[test]
 fn open_children_refuse_unless_allowed() {
     let fixture = stacked();
-    expect!["refused: child still lands into it"].assert_eq(&archive(&fixture, "parent", &Allow::default()));
-    let allow = Allow::from_iter([SafeguardKind::OpenChildren]);
+    expect!["refused: child still lands into it"].assert_eq(&archive(&fixture, "parent", &BTreeSet::new()));
+    let allow = BTreeSet::from([SafeguardKind::OpenChildren]);
     expect!["done"].assert_eq(&archive(&fixture, "parent", &allow));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
@@ -48,9 +47,9 @@ fn open_children_refuse_unless_allowed() {
 #[test]
 fn permanent_refuses_unless_allowed() {
     let fixture = stacked();
-    fixture.cabaret.set_permanent(&id("child"), true, &Allow::from_iter([SafeguardKind::ImpermanentParents])).unwrap();
-    expect!["refused: it is permanent"].assert_eq(&archive(&fixture, "child", &Allow::default()));
-    let allow = Allow::from_iter([SafeguardKind::Permanent]);
+    fixture.cabaret.set_permanent(&id("child"), true, &BTreeSet::from([SafeguardKind::ImpermanentParents])).unwrap();
+    expect!["refused: it is permanent"].assert_eq(&archive(&fixture, "child", &BTreeSet::new()));
+    let allow = BTreeSet::from([SafeguardKind::Permanent]);
     expect!["done"].assert_eq(&archive(&fixture, "child", &allow));
 }
 
@@ -62,7 +61,7 @@ fn archived_parents_refuse_unarchiving_unless_allowed() {
     expect!["refused: parent is archived, so should not have unarchived children"].assert_eq(&unarchive(
         &fixture,
         "child",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    expect!["done"].assert_eq(&unarchive(&fixture, "child", &Allow::from_iter([SafeguardKind::ArchivedParents])));
+    expect!["done"].assert_eq(&unarchive(&fixture, "child", &BTreeSet::from([SafeguardKind::ArchivedParents])));
 }

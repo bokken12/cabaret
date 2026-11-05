@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use cabaret_lib::{RevisionId, log::LogAction, safeguard::Allow};
+use cabaret_lib::{RevisionId, log::LogAction};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id, short};
@@ -88,7 +88,7 @@ fn edits_already_in_effect_write_nothing() {
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     let child = id("child");
     let greeting = ["greeting.txt".parse().unwrap()];
-    let allow = Allow::default();
+    let allow = BTreeSet::new();
     fixture.cabaret.set_title(&child, Some("Titled".into())).unwrap();
     fixture.cabaret.set_description(&child, Some("Described.".into())).unwrap();
     fixture.cabaret.mark(&child, &greeting, None).unwrap();

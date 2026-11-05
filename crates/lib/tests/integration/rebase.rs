@@ -1,10 +1,9 @@
 //! Rebasing: each parent's tip is merged into the change, and the workspace holding the change
 //! follows its branch, keeping its local changes.
 
-use cabaret_lib::{
-    Error,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id, worktree};
@@ -20,10 +19,10 @@ fn diverged() -> Fixture {
 }
 
 fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
-    rebase_allowing(fixture, change, onto, &Allow::default())
+    rebase_allowing(fixture, change, onto, &BTreeSet::new())
 }
 
-fn rebase_allowing(fixture: &Fixture, change: &str, onto: Option<&str>, allow: &Allow) -> String {
+fn rebase_allowing(fixture: &Fixture, change: &str, onto: Option<&str>, allow: &BTreeSet<SafeguardKind>) -> String {
     let onto = onto.map(id);
     match fixture.cabaret.rebase(&id(change), onto.as_deref(), allow) {
         Ok(rebase) => format!("{rebase:?}"),
@@ -123,7 +122,7 @@ fn onto_merges_only_that_parent() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right"), &Allow::default()).unwrap();
+    fixture.cabaret.add_parent(&id("join"), &id("right"), &BTreeSet::new()).unwrap();
     fixture.commit("left", &[("left.txt", "left\n")]);
     expect![[r#"Rebase { merged: {"right"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase(
         &fixture,
@@ -141,7 +140,7 @@ fn conflict_stops_before_next_parent() {
     fixture.create("left", "main", &alice());
     fixture.create("right", "main", &alice());
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right"), &Allow::default()).unwrap();
+    fixture.cabaret.add_parent(&id("join"), &id("right"), &BTreeSet::new()).unwrap();
     fixture.commit("join", &[("file.txt", "join\n")]);
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.commit("right", &[("right.txt", "right\n")]);
@@ -263,7 +262,7 @@ fn linked_workspace_follows_change() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
     let tip = fixture.tip("child");
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"]
         .assert_eq(&rebase(&fixture, "child", None));
@@ -272,14 +271,14 @@ fn non_owner_refuses_unless_allowed() {
         &fixture,
         "child",
         None,
-        &Allow::from_iter([SafeguardKind::NonOwner]),
+        &BTreeSet::from([SafeguardKind::NonOwner]),
     ));
 }
 
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
     expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }
 
@@ -299,7 +298,7 @@ fn conflicted() -> Fixture {
 fn conflicted_refuses_unless_allowed() {
     let fixture = conflicted();
     expect!["refused: conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "child", None));
-    let allow = Allow::from_iter([SafeguardKind::Conflicted]);
+    let allow = BTreeSet::from([SafeguardKind::Conflicted]);
     expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
         .assert_eq(&rebase_allowing(&fixture, "child", None, &allow));
 }
@@ -311,7 +310,7 @@ fn conflicted_parent_refuses_unless_allowed() {
     fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
     fixture.commit("child", &[("child.txt", "child\n")]);
     expect!["refused: child has conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "grandchild", None));
-    let allow = Allow::from_iter([SafeguardKind::ParentConflicted]);
+    let allow = BTreeSet::from([SafeguardKind::ParentConflicted]);
     expect![[r#"Rebase { merged: {"child"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(
         &fixture,
         "grandchild",

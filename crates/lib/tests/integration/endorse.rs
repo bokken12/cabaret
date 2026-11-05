@@ -1,9 +1,8 @@
 //! Endorsing: an owner's approval of a change as a whole, which every owner gives before it lands.
 
-use cabaret_lib::{
-    Error,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};
@@ -17,7 +16,7 @@ fn feature() -> Fixture {
     fixture
 }
 
-fn endorse(fixture: &Fixture, allow: &Allow) -> String {
+fn endorse(fixture: &Fixture, allow: &BTreeSet<SafeguardKind>) -> String {
     match fixture.cabaret.endorse(&id("feature"), allow) {
         Ok(()) => format!("endorsers: {:?}", fixture.snapshot("feature").endorsers),
         Err(Error::Refused(refused)) => {
@@ -32,14 +31,14 @@ fn endorse(fixture: &Fixture, allow: &Allow) -> String {
 fn reviewed_change_endorses() {
     let fixture = feature();
     fixture.mark_all("feature");
-    expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &Allow::default()));
+    expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &BTreeSet::new()));
 }
 
 #[test]
 fn unreviewed_refuses_unless_allowed() {
     let fixture = feature();
-    expect!["refused: alice@example.com has files left to review"].assert_eq(&endorse(&fixture, &Allow::default()));
-    let allow = Allow::from_iter([SafeguardKind::Unreviewed]);
+    expect![[r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#]].assert_eq(&endorse(&fixture, &BTreeSet::new()));
+    let allow = BTreeSet::from([SafeguardKind::Unreviewed]);
     expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &allow));
 }
 
@@ -49,7 +48,7 @@ fn endorsing_again_writes_nothing() {
     fixture.mark_all("feature");
     fixture.endorse("feature");
     let head = fixture.log_head("feature");
-    expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &Allow::default()));
+    expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &BTreeSet::new()));
     assert_eq!(fixture.log_head("feature"), head);
 }
 

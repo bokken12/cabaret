@@ -1,8 +1,10 @@
 //! Landing: the parent merges the change in and the change is archived.
 
+use std::collections::BTreeSet;
+
 use cabaret_lib::{
     Error,
-    safeguard::{Allow, Safeguard, SafeguardKind},
+    safeguard::{Safeguard, SafeguardKind},
 };
 use expect_test::expect;
 
@@ -26,9 +28,9 @@ fn diverged() -> Fixture {
     fixture
 }
 
-fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, change, &Allow::default()) }
+fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, change, &BTreeSet::new()) }
 
-fn land_allowing(fixture: &Fixture, change: &str, allow: &Allow) -> String {
+fn land_allowing(fixture: &Fixture, change: &str, allow: &BTreeSet<SafeguardKind>) -> String {
     match fixture.cabaret.land(&id(change), allow) {
         Ok(parent) => format!("landed into {parent}"),
         Err(Error::Refused(refused)) => format!("refused: {}", shown(refused)),
@@ -88,7 +90,7 @@ fn conflicts_into_root_refuse() {
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
     let tip = fixture.tip("main");
-    let allow = Allow::from_iter([SafeguardKind::Conflicted, SafeguardKind::Unreviewed]);
+    let allow = BTreeSet::from([SafeguardKind::Conflicted, SafeguardKind::Unreviewed]);
     expect!["error: child would land conflicts in main, a root; rebase and resolve first"]
         .assert_eq(&land_allowing(&fixture, "child", &allow));
     assert_eq!(fixture.tip("main"), tip);
@@ -116,7 +118,7 @@ fn conflicts_refuse_unless_allowed() {
     expect!["landed into mid"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Conflicted]),
+        &BTreeSet::from([SafeguardKind::Conflicted]),
     ));
     expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
         fixture
@@ -137,7 +139,7 @@ fn empty_refuses_unless_allowed() {
     fixture.create("empty", "main", &alice());
     fixture.endorse("empty");
     expect!["refused: it adds nothing to main"].assert_eq(&land(&fixture, "empty"));
-    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", &Allow::from_iter([SafeguardKind::Empty])));
+    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", &BTreeSet::from([SafeguardKind::Empty])));
     assert!(fixture.snapshot("empty").archived);
 }
 
@@ -145,12 +147,12 @@ fn empty_refuses_unless_allowed() {
 fn unreviewed_parent_refuses_unless_allowed() {
     let fixture = conflicting();
     fixture.commit("mid", &[("greeting.txt", "hi\n")]);
-    fixture.cabaret.rebase(&id("child"), None, &Allow::default()).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, &BTreeSet::new()).unwrap();
     expect!["refused: alice@example.com has files of mid left to review"].assert_eq(&land(&fixture, "child"));
     expect!["landed into mid"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::ParentUnreviewed]),
+        &BTreeSet::from([SafeguardKind::ParentUnreviewed]),
     ));
 }
 
@@ -163,7 +165,7 @@ fn uncommitted_refuses_unless_allowed() {
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Uncommitted]),
+        &BTreeSet::from([SafeguardKind::Uncommitted]),
     ));
 }
 
@@ -171,7 +173,7 @@ fn uncommitted_refuses_unless_allowed() {
 fn permanent_change_stays_open() {
     let fixture = diverged();
     fixture.checkout("main");
-    fixture.cabaret.set_permanent(&id("child"), true, &Allow::default()).unwrap();
+    fixture.cabaret.set_permanent(&id("child"), true, &BTreeSet::new()).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
 }
@@ -181,12 +183,12 @@ fn unreviewed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.commit("child", &[("more.txt", "more\n")]);
     let tip = fixture.tip("main");
-    expect!["refused: alice@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
+    expect![[r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#]].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Unreviewed]),
+        &BTreeSet::from([SafeguardKind::Unreviewed]),
     ));
 }
 
@@ -195,12 +197,12 @@ fn unendorsed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.cabaret.unendorse(&id("child")).unwrap();
     let tip = fixture.tip("main");
-    expect!["refused: alice@example.com has not endorsed it"].assert_eq(&land(&fixture, "child"));
+    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("alice@example.com")})"#]].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Unendorsed]),
+        &BTreeSet::from([SafeguardKind::Unendorsed]),
     ));
 }
 
@@ -215,24 +217,24 @@ fn endorsement_outlasts_later_commits() {
 #[test]
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review; bob@example.com has not endorsed it"].assert_eq(&land(&fixture, "child"));
-    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has not endorsed it"].assert_eq(&land_allowing(
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
+    expect![[r#"refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all review obligations have been fulfilled (remaining: {Identity("bob@example.com")}); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land(&fixture, "child"));
+    expect![[r#"refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Unreviewed]),
+        &BTreeSet::from([SafeguardKind::Unreviewed]),
     ));
-    expect!["refused: bob@example.com has not endorsed it"].assert_eq(&land_allowing(
+    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land_allowing(
         &fixture,
         "child",
-        &Allow::from_iter([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
+        &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
     ));
 }
 
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
     fixture.archive("child");
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
@@ -240,7 +242,7 @@ fn errors_come_before_safeguards() {
 #[test]
 fn safeguards_foretell_refusal() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
-    expect!["you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review; bob@example.com has not endorsed it"]
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
+    expect![[r#"you (alice@example.com) are not an owner (owners: bob@example.com); not all review obligations have been fulfilled (remaining: {Identity("bob@example.com")}); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]]
         .assert_eq(&shown(fixture.cabaret.land_safeguards(&id("child")).unwrap()));
 }

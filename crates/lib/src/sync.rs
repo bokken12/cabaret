@@ -97,10 +97,10 @@ impl Cabaret {
         if !local {
             // TODO-someday(joel): check out the files in a workspace whose unborn HEAD names this branch
             let insert = BranchOp::Insert { id: change_id, tip: origin };
-            self.store.transact(&[], &[insert], &[], |_ctx, [], [_branch], []| Ok(()))?;
+            self.store.transact(&BTreeSet::new(), &[], &[insert], &[], |_ctx, [], [_branch], []| Ok(()))?;
             return Ok(false);
         }
-        self.store.transact(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
+        self.store.transact(&BTreeSet::new(), &[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             if ctx.is_predecessor(origin, branch.tip)? {
                 return Ok(branch.tip != origin);
             }

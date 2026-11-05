@@ -1,9 +1,8 @@
 //! Who a change is up for review by, and the safeguards on setting it.
 
-use cabaret_lib::{
-    Error, Reviewing,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, Reviewing, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -15,7 +14,7 @@ fn feature() -> Fixture {
     fixture
 }
 
-fn set_reviewing(fixture: &Fixture, reviewing: Reviewing, allow: &Allow) -> String {
+fn set_reviewing(fixture: &Fixture, reviewing: Reviewing, allow: &BTreeSet<SafeguardKind>) -> String {
     match fixture.cabaret.set_reviewing(&id("feature"), reviewing, allow) {
         Ok(()) => format!("reviewing: {}", fixture.snapshot("feature").reviewing),
         Err(Error::Refused(refused)) => {
@@ -37,7 +36,7 @@ fn owner_sets_any_state() {
     let fixture = feature();
     let mut out = Vec::new();
     for reviewing in [Reviewing::Owners, Reviewing::All, Reviewing::None] {
-        out.push(set_reviewing(&fixture, reviewing, &Allow::default()));
+        out.push(set_reviewing(&fixture, reviewing, &BTreeSet::new()));
     }
     expect!["reviewing: owners; reviewing: all; reviewing: none"].assert_eq(&out.join("; "));
 }
@@ -54,12 +53,12 @@ fn setting_same_state_writes_nothing() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = feature();
-    fixture.cabaret.set_owners(&id("feature"), &[bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("feature"), &[bob()].into(), &BTreeSet::new()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&set_reviewing(
         &fixture,
         Reviewing::Owners,
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::NonOwner]);
+    let allow = BTreeSet::from([SafeguardKind::NonOwner]);
     expect!["reviewing: owners"].assert_eq(&set_reviewing(&fixture, Reviewing::Owners, &allow));
 }

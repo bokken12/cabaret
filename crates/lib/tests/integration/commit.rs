@@ -1,9 +1,8 @@
 //! Committing: what a change's workspace has on disk becomes the change's new tip.
 
-use cabaret_lib::{
-    Error, Pathspec,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, Pathspec, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -21,10 +20,10 @@ fn two_changes() -> Fixture {
 }
 
 fn commit(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
-    commit_allowing(fixture, change, pathspecs, &Allow::default())
+    commit_allowing(fixture, change, pathspecs, &BTreeSet::new())
 }
 
-fn commit_allowing(fixture: &Fixture, change: &str, pathspecs: &[&str], allow: &Allow) -> String {
+fn commit_allowing(fixture: &Fixture, change: &str, pathspecs: &[&str], allow: &BTreeSet<SafeguardKind>) -> String {
     let pathspecs = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect::<Vec<_>>();
     match fixture.cabaret.commit(&id(change), &pathspecs, allow) {
         Ok(revision) => format!("committed {:?}", fixture.message(revision)),
@@ -97,7 +96,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
     fixture.write("a[1].txt", "bracketed\n");
     fixture.write("a1.txt", "plain\n");
     let literal = Pathspec::literal(&"a[1].txt".parse().unwrap());
-    fixture.cabaret.commit(&id("one"), &[literal], &Allow::default()).unwrap();
+    fixture.cabaret.commit(&id("one"), &[literal], &BTreeSet::new()).unwrap();
     expect![[r#"
         one
           workspace main
@@ -221,6 +220,6 @@ fn adding_conflict_markers_refuses_unless_allowed() {
         &fixture,
         "one",
         &[],
-        &Allow::from_iter([SafeguardKind::Conflicted]),
+        &BTreeSet::from([SafeguardKind::Conflicted]),
     ));
 }

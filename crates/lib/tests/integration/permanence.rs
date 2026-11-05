@@ -1,9 +1,8 @@
 //! Permanence: changes that stay open as others land into them, and the safeguards on marking one.
 
-use cabaret_lib::{
-    Error,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, safeguard::SafeguardKind};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -17,7 +16,7 @@ fn stacked() -> Fixture {
     fixture
 }
 
-fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: &Allow) -> String {
+fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: &BTreeSet<SafeguardKind>) -> String {
     match fixture.cabaret.set_permanent(&id(change), permanent, allow) {
         Ok(()) => format!("permanent: {}", fixture.snapshot(change).permanent),
         Err(Error::Refused(refused)) => {
@@ -31,28 +30,28 @@ fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: &Allow
 #[test]
 fn change_on_root_needs_no_allowing() {
     let fixture = stacked();
-    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, &Allow::default()));
+    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, &BTreeSet::new()));
 }
 
 #[test]
 fn impermanent_parent_refuses_unless_allowed() {
     let fixture = stacked();
-    expect!["refused: feature is not permanent"].assert_eq(&set_permanent(&fixture, "child", true, &Allow::default()));
-    let allow = Allow::from_iter([SafeguardKind::ImpermanentParents]);
+    expect!["refused: feature is not permanent"].assert_eq(&set_permanent(&fixture, "child", true, &BTreeSet::new()));
+    let allow = BTreeSet::from([SafeguardKind::ImpermanentParents]);
     expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "child", true, &allow));
-    expect!["permanent: false"].assert_eq(&set_permanent(&fixture, "child", false, &Allow::default()));
+    expect!["permanent: false"].assert_eq(&set_permanent(&fixture, "child", false, &BTreeSet::new()));
 }
 
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = stacked();
-    fixture.cabaret.set_owners(&id("feature"), &[bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("feature"), &[bob()].into(), &BTreeSet::new()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&set_permanent(
         &fixture,
         "feature",
         true,
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::NonOwner]);
+    let allow = BTreeSet::from([SafeguardKind::NonOwner]);
     expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, &allow));
 }

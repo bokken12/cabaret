@@ -1,7 +1,6 @@
-use cabaret_lib::{
-    Error,
-    safeguard::{Allow, SafeguardKind},
-};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{Error, safeguard::SafeguardKind};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -18,11 +17,11 @@ fn shown(attempt: cabaret_lib::Result<()>) -> String {
     }
 }
 
-fn add_parent(fixture: &Fixture, change: &str, parent: &str, allow: &Allow) -> String {
+fn add_parent(fixture: &Fixture, change: &str, parent: &str, allow: &BTreeSet<SafeguardKind>) -> String {
     shown(fixture.cabaret.add_parent(&id(change), &id(parent), allow))
 }
 
-fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: &Allow) -> String {
+fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: &BTreeSet<SafeguardKind>) -> String {
     shown(fixture.cabaret.remove_parent(&id(change), &id(parent), allow))
 }
 
@@ -65,9 +64,9 @@ fn ancestor_of_parent_dropped() {
         &fixture,
         "child",
         "main",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::RedundantParent]);
+    let allow = BTreeSet::from([SafeguardKind::RedundantParent]);
     expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
     let snapshot = fixture.snapshot("child");
     expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
@@ -91,7 +90,7 @@ fn fix_drops_ancestor_of_other_parent() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
-    let allow = Allow::from_iter([SafeguardKind::RedundantParent]);
+    let allow = BTreeSet::from([SafeguardKind::RedundantParent]);
     expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
     fixture.cabaret.fix_parents(&id("child")).unwrap();
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
@@ -117,7 +116,7 @@ fn created_parent_sits_between_child_and_its_parents() {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("b", "2")]);
     fixture.commit("main", &[("c", "3")]);
-    fixture.cabaret.create_parent("parent", &id("child"), &alice()).unwrap();
+    fixture.cabaret.create_parent("parent", &id("child"), &alice(), &BTreeSet::new()).unwrap();
     let parent = fixture.snapshot("parent");
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
     expect![[r#"{Identity("alice@example.com")}"#]].assert_eq(&format!("{:?}", parent.owners));
@@ -138,7 +137,7 @@ fn created_parent_sits_between_child_and_its_parents() {
 fn created_parent_requires_base() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
-    let error = fixture.cabaret.create_parent("parent", &id("main"), &alice()).unwrap_err();
+    let error = fixture.cabaret.create_parent("parent", &id("main"), &alice(), &BTreeSet::new()).unwrap_err();
     expect!["main has no base to create a parent from"].assert_eq(&format!("{error:?}"));
 }
 
@@ -150,7 +149,7 @@ fn created_on_several_parents_starts_at_their_merge() {
     fixture.commit("left", &[("left.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
-    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &Allow::default()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &BTreeSet::new()).unwrap();
     expect![[r#"
         join
           parents left right
@@ -170,7 +169,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &Allow::default()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &BTreeSet::new()).unwrap();
     expect![[r#"
         join
           parents left right
@@ -203,13 +202,13 @@ fn cycle_refuses() {
         &fixture,
         "parent",
         "child",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
     expect!["error: parent cannot be its own parent"].assert_eq(&add_parent(
         &fixture,
         "parent",
         "parent",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
 }
 
@@ -224,9 +223,9 @@ fn archived_parent_refuses_unless_allowed() {
         &fixture,
         "change",
         "done",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::ArchivedParents]);
+    let allow = BTreeSet::from([SafeguardKind::ArchivedParents]);
     expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", &allow));
 }
 
@@ -240,7 +239,7 @@ fn unrelated_root_shares_no_ancestor() {
         &fixture,
         "change",
         "other",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
 }
 
@@ -250,15 +249,15 @@ fn removal_moving_base_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &bob());
     fixture.commit("parent", &[("parent.txt", "parent\n")]);
-    fixture.cabaret.create("child", &nebts![id("parent"), id("main")], &alice(), &Allow::default()).unwrap();
+    fixture.cabaret.create("child", &nebts![id("parent"), id("main")], &alice(), &BTreeSet::new()).unwrap();
     fixture.commit("child", &[("child.txt", "child\n")]);
     expect!["refused: its diff would take in the work of parent"].assert_eq(&remove_parent(
         &fixture,
         "child",
         "parent",
-        &Allow::default(),
+        &BTreeSet::new(),
     ));
-    let allow = Allow::from_iter([SafeguardKind::BaseMoves]);
+    let allow = BTreeSet::from([SafeguardKind::BaseMoves]);
     expect!["done"].assert_eq(&remove_parent(&fixture, "child", "parent", &allow));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }

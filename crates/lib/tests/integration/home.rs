@@ -1,6 +1,8 @@
 //! The home page: what each section includes for a viewer and how the page draws it.
 
-use cabaret_lib::{Reviewing, safeguard::Allow};
+use std::collections::BTreeSet;
+
+use cabaret_lib::Reviewing;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -208,7 +210,7 @@ fn changes_await_review_only_once_up_for_it() {
     fixture.commit("draft", &[("draft.txt", "draft\n")]);
     fixture.create("everyone", "main", &alice());
     fixture.commit("everyone", &[("everyone.txt", "everyone\n")]);
-    fixture.cabaret.set_reviewing(&id("everyone"), Reviewing::All, &Allow::default()).unwrap();
+    fixture.cabaret.set_reviewing(&id("everyone"), Reviewing::All, &BTreeSet::new()).unwrap();
     expect![[r#"
         Review
         ○   everyone
@@ -234,7 +236,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     fixture.request_review("feature");
     fixture.mark_all("feature");
     fixture.commit("main", &[("main.txt", "main\n")]);
-    fixture.cabaret.rebase(&id("feature"), None, &Allow::default()).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, &BTreeSet::new()).unwrap();
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
@@ -247,7 +249,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     "#]]
     .assert_eq(&home(&fixture));
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("feature"), None, &Allow::default()).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, &BTreeSet::new()).unwrap();
     expect![[r#"
         Review
         ○   feature
