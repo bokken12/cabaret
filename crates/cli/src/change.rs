@@ -21,12 +21,12 @@ pub enum OwnersCommand {
     Remove {
         owner: Identity,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Set {
         owners: Vec<Identity>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
 }
 
@@ -41,13 +41,13 @@ pub enum ParentsCommand {
         #[arg(add = change_completer())]
         parent: ChangeId,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Set {
         #[arg(required = true, add = change_completer())]
@@ -65,7 +65,7 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Commit {
         #[arg(long, add = change_completer())]
@@ -73,7 +73,7 @@ pub enum ChangeCommand {
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Create {
         name: String,
@@ -82,7 +82,7 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer(), conflicts_with = "parent")]
         child: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     /// Set the change's description, given or else read from stdin; blank clears it.
     Describe {
@@ -120,13 +120,13 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -135,7 +135,7 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     /// Mark the files matching the given pathspecs as reviewed by you, among those left for you to review or
     /// marked by you before.
@@ -167,7 +167,7 @@ pub enum ChangeCommand {
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     /// Set who the change is up for review by.
     Reviewing {
@@ -176,7 +176,7 @@ pub enum ChangeCommand {
         #[arg(value_parser = reviewing())]
         reviewing: Reviewing,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
-        allow: BTreeSet<SafeguardKind>,
+        allow: Vec<SafeguardKind>,
     },
     Show {
         #[arg(long, add = change_completer())]
@@ -200,21 +200,21 @@ impl ChangeCommand {
                 let change = or_current(change)?;
                 match undo {
                     false => {
-                        cabaret.archive(&change, &allow)?;
+                        cabaret.archive(&change, &BTreeSet::from_iter(allow))?;
                     }
                     true => {
-                        cabaret.unarchive(&change, &allow)?;
+                        cabaret.unarchive(&change, &BTreeSet::from_iter(allow))?;
                     }
                 }
             }
             ChangeCommand::Commit { change, pathspecs, allow } => {
                 let change = or_current(change)?;
-                cabaret.commit(&change, &pathspecs, &allow)?;
+                cabaret.commit(&change, &pathspecs, &BTreeSet::from_iter(allow))?;
                 println!("committed to {change}");
             }
             ChangeCommand::Create { name, parent, child, allow } => {
                 let owner = &cabaret.identity()?;
-                let allow = &allow;
+                let allow = &BTreeSet::from_iter(allow);
                 match (child, NEVec::try_from_vec(parent)) {
                     (Some(_), Some(_)) => unreachable!("clap rejects --parent with --child"),
                     (Some(child), None) => {
@@ -255,16 +255,16 @@ impl ChangeCommand {
                 println!("discarded from {change}");
             }
             ChangeCommand::Endorse { change, undo, allow } => {
-                endorse(cabaret, &or_current(change)?, undo, &allow)?;
+                endorse(cabaret, &or_current(change)?, undo, &BTreeSet::from_iter(allow))?;
             }
             ChangeCommand::Land { change, allow } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change, &allow)?;
+                let parent = cabaret.land(&change, &BTreeSet::from_iter(allow))?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo, allow } => {
                 let change = or_current(change)?;
-                cabaret.set_permanent(&change, !undo, &allow)?;
+                cabaret.set_permanent(&change, !undo, &BTreeSet::from_iter(allow))?;
             }
             ChangeCommand::Mark { change, tip, pathspecs } => {
                 let change = or_current(change)?;
@@ -280,10 +280,10 @@ impl ChangeCommand {
                     OwnersCommand::Show => return Err("change owners show is not implemented yet".into()),
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner, allow } => {
-                        cabaret.remove_owner(change, &owner, &allow)?;
+                        cabaret.remove_owner(change, &owner, &BTreeSet::from_iter(allow))?;
                     }
                     OwnersCommand::Set { owners, allow } => {
-                        cabaret.set_owners(change, &owners.into_iter().collect(), &allow)?;
+                        cabaret.set_owners(change, &owners.into_iter().collect(), &BTreeSet::from_iter(allow))?;
                     }
                 }
             }
@@ -296,10 +296,10 @@ impl ChangeCommand {
                         println!("created {id} as parent of {change}");
                     }
                     ParentsCommand::Add { parent, allow } => {
-                        cabaret.add_parent(change, &parent, &allow)?;
+                        cabaret.add_parent(change, &parent, &BTreeSet::from_iter(allow))?;
                     }
                     ParentsCommand::Remove { parent, allow } => {
-                        cabaret.remove_parent(change, &parent, &allow)?;
+                        cabaret.remove_parent(change, &parent, &BTreeSet::from_iter(allow))?;
                     }
                     ParentsCommand::Fix => cabaret.fix_parents(change)?,
                     ParentsCommand::Set { parents: _ } => {
@@ -308,11 +308,11 @@ impl ChangeCommand {
                 }
             }
             ChangeCommand::Rebase { change, onto, allow } => {
-                rebase(cabaret, &or_current(change)?, onto.as_deref(), &allow)?;
+                rebase(cabaret, &or_current(change)?, onto.as_deref(), &BTreeSet::from_iter(allow))?;
             }
             ChangeCommand::Reviewing { change, reviewing, allow } => {
                 let change = or_current(change)?;
-                cabaret.set_reviewing(&change, reviewing, &allow)?;
+                cabaret.set_reviewing(&change, reviewing, &BTreeSet::from_iter(allow))?;
                 println!("{change} reviewing: {reviewing}");
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
