@@ -240,11 +240,3 @@ fn errors_come_before_safeguards() {
     fixture.archive("child");
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
-
-#[test]
-fn safeguards_foretell_refusal() {
-    let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
-    expect![[r#"you (alice@example.com) are not an owner (owners: bob@example.com); not all review obligations have been fulfilled (remaining: {Identity("bob@example.com")}); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]]
-        .assert_eq(&shown(fixture.cabaret.land_safeguards(&id("child")).unwrap()));
-}

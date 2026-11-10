@@ -59,6 +59,15 @@ impl<'ctx> TransactionContext<'ctx> {
         }
     }
 
+    pub fn check_owner(&'ctx self, change_id: &ChangeIdRef) -> Result<()> {
+        let you = self.identity()?;
+        let owners = &self.metadata(change_id)?.owners;
+        if !owners.contains(&you) {
+            self.check(Safeguard::NonOwner { you, owners: owners.clone() })
+        };
+        Ok(())
+    }
+
     // TODO(joel): delete this
     pub fn check_all(&self, safeguards: Vec<Safeguard>) {
         for safeguard in safeguards {

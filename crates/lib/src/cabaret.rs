@@ -371,17 +371,6 @@ impl Cabaret {
         })
     }
 
-    /// The safeguards that would refuse landing `change_id` now, for a frontend to ask about first.
-    pub fn land_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<Safeguard>> {
-        self.store.query(|ctx| {
-            let parent_id = landing_parent(ctx, change_id)?;
-            let child_branch = ctx.branch(change_id)?;
-            // A trial merge, whose commit nothing will point to, is how landing's result is known.
-            let merged = ctx.branch(&parent_id)?.clone().merge(child_branch, "land")?;
-            land_safeguards(ctx.metadata(change_id)?, child_branch, &parent_id, merged.as_ref())
-        })
-    }
-
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts landing in a root are errors, since a root is never searched for them:
     /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
@@ -400,7 +389,44 @@ impl Cabaret {
             if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
                 Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
             }
-            ctx.check_all(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?);
+
+            // TODO(joel): simplify post-inlining
+
+            ctx.check_owner(change_id)?;
+
+            let parents = child.parents()?;
+            if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(child, child_branch, &parents)?) {
+                ctx.check(Safeguard::Unreviewed { reviewers });
+            }
+            if let Some(owners) = NEBTreeSet::try_from_set(child.unendorsed()) {
+                ctx.check(Safeguard::Unendorsed { owners });
+            }
+            let parent = ctx.metadata(&parent_id)?;
+            let grandparents = parent.parents()?;
+            // A root has no diff of its own to review.
+            if !grandparents.is_empty()
+                && let Some(reviewers) =
+                    NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(&parent_id)?, &grandparents)?)
+            {
+                ctx.check(Safeguard::ParentUnreviewed { parent: parent_id.to_owned(), reviewers });
+            }
+            match merged {
+                None => ctx.check(Safeguard::Empty { parent: parent_id.to_owned() }),
+                Some(conflicts) => {
+                    let files =
+                        child_branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
+                    if let Some(files) = NEBTreeSet::try_from_set(files) {
+                        ctx.check(Safeguard::Conflicted { files });
+                    }
+                }
+            }
+            if let Some(workspace) = child_branch.workspace()?
+                && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
+            {
+                ctx.check(Safeguard::Uncommitted { workspace });
+            }
+
+            // ctx.check_all(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?);
             if !child.permanent {
                 child.archived = true;
             }
@@ -838,48 +864,6 @@ fn landing_parent<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeI
         [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
         [parent] => Ok((*parent).clone()),
     }
-}
-
-/// `merged` is what merging the change into `parent_id` gave: the files it conflicted in, or
-/// `None` when the parent already held everything.
-fn land_safeguards(
-    metadata: &Metadata<'_>,
-    branch: &Branch<'_>,
-    parent_id: &ChangeIdRef,
-    merged: Option<&BTreeSet<RepoPath>>,
-) -> Result<Vec<Safeguard>> {
-    let ctx = metadata.ctx();
-    let parents = metadata.parents()?;
-    let mut safeguards = Vec::from_iter(non_owner(metadata)?);
-    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
-        safeguards.push(Safeguard::Unreviewed { reviewers });
-    }
-    if let Some(owners) = NEBTreeSet::try_from_set(metadata.unendorsed()) {
-        safeguards.push(Safeguard::Unendorsed { owners });
-    }
-    let parent = ctx.metadata(parent_id)?;
-    let grandparents = parent.parents()?;
-    // A root has no diff of its own to review.
-    if !grandparents.is_empty()
-        && let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(parent_id)?, &grandparents)?)
-    {
-        safeguards.push(Safeguard::ParentUnreviewed { parent: parent_id.to_owned(), reviewers });
-    }
-    match merged {
-        None => safeguards.push(Safeguard::Empty { parent: parent_id.to_owned() }),
-        Some(conflicts) => {
-            let files = branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
-            if let Some(files) = NEBTreeSet::try_from_set(files) {
-                safeguards.push(Safeguard::Conflicted { files });
-            }
-        }
-    }
-    if let Some(workspace) = branch.workspace()?
-        && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
-    {
-        safeguards.push(Safeguard::Uncommitted { workspace });
-    }
-    Ok(safeguards)
 }
 
 /// What changing a change's owners from `before` to `after` risks, done by `you`.
