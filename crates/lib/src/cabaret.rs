@@ -426,19 +426,10 @@ impl Cabaret {
                 ctx.check(Safeguard::Uncommitted { workspace });
             }
 
-            // ctx.check_all(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?);
             if !child.permanent {
                 child.archived = true;
             }
             Ok(parent_id.clone())
-        })
-    }
-
-    /// The safeguards that would refuse rebasing `change_id` now, for a frontend to ask about first.
-    pub fn rebase_safeguards(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Vec<Safeguard>> {
-        self.store.query(|ctx| {
-            let metadata = ctx.metadata(change_id)?;
-            rebase_safeguards(metadata, ctx.branch(change_id)?, &rebase_targets(metadata, onto)?)
         })
     }
 
@@ -455,7 +446,25 @@ impl Cabaret {
         self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
             let targets = rebase_targets(metadata, onto)?;
-            ctx.check_all(rebase_safeguards(metadata, branch, &targets)?);
+
+            // TODO(joel): clean up post-inlining
+
+            ctx.check_owner(change_id)?;
+            if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
+                ctx.check(Safeguard::Conflicted { files });
+            }
+            for target in &targets {
+                let parent = ctx.branch(target)?;
+                // A parent already merged in brings nothing, conflicts included.
+                if ctx.is_predecessor(parent.tip, branch.tip)? {
+                    continue;
+                }
+                if let Some(files) =
+                    NEBTreeSet::try_from_set(parent.conflicted_files(&ctx.metadata(target)?.parents()?)?)
+                {
+                    ctx.check(Safeguard::ParentConflicted { parent: target.clone(), files });
+                }
+            }
 
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
@@ -685,9 +694,7 @@ impl Cabaret {
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            if let Some(non_owner) = non_owner(metadata)? {
-                ctx.check(non_owner);
-            }
+            ctx.check_owner(change_id)?;
             if permanent {
                 let mut impermanent = BTreeSet::new();
                 for parent_id in metadata.parents()? {
@@ -716,7 +723,7 @@ impl Cabaret {
             if metadata.reviewing == reviewing {
                 return Ok(());
             }
-            ctx.check_all(Vec::from_iter(non_owner(metadata)?));
+            ctx.check_owner(change_id)?;
             metadata.reviewing = reviewing;
             Ok(())
         })
@@ -938,34 +945,6 @@ fn rebase_targets(metadata: &Metadata<'_>, onto: Option<&ChangeIdRef>) -> Result
         Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
         Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
     })
-}
-
-fn rebase_safeguards(
-    metadata: &Metadata<'_>,
-    branch: &Branch<'_>,
-    targets: &BTreeSet<ChangeId>,
-) -> Result<Vec<Safeguard>> {
-    let ctx = metadata.ctx();
-    let mut safeguards = Vec::from_iter(non_owner(metadata)?);
-    if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
-        safeguards.push(Safeguard::Conflicted { files });
-    }
-    for target in targets {
-        let parent = ctx.branch(target)?;
-        // A parent already merged in brings nothing, conflicts included.
-        if ctx.is_predecessor(parent.tip, branch.tip)? {
-            continue;
-        }
-        if let Some(files) = NEBTreeSet::try_from_set(parent.conflicted_files(&ctx.metadata(target)?.parents()?)?) {
-            safeguards.push(Safeguard::ParentConflicted { parent: target.clone(), files });
-        }
-    }
-    Ok(safeguards)
-}
-
-fn non_owner(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
-    let you = metadata.ctx().identity()?;
-    Ok((!metadata.owners.contains(&you)).then(|| Safeguard::NonOwner { you, owners: metadata.owners.clone() }))
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

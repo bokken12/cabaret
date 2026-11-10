@@ -318,12 +318,3 @@ fn conflicted_parent_refuses_unless_allowed() {
         &allow,
     ));
 }
-
-#[test]
-fn merged_parent_brings_no_conflicts() {
-    let fixture = conflicted();
-    fixture.create("grandchild", "child", &alice());
-    fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
-    let concerns = fixture.cabaret.rebase_safeguards(&id("grandchild"), None).unwrap();
-    expect!["[]"].assert_eq(&format!("{concerns:?}"));
-}
