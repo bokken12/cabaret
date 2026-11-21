@@ -571,10 +571,11 @@ impl Cabaret {
             if parent_id == change_id {
                 Err(format!("{change_id} cannot be its own parent"))?;
             }
-            if ctx.metadata(parent_id)?.is_descendant(change_id)? {
+            let parent = ctx.metadata(parent_id)?;
+            if parent.is_descendant(change_id)? {
                 Err(format!("{parent_id} descends from {change_id}, so it cannot be its parent"))?;
             }
-            if ctx.metadata(parent_id)?.archived && !metadata.archived {
+            if parent.archived && !metadata.archived {
                 ctx.check(Safeguard::ArchivedParents { parents: nebts![parent_id.to_owned()] });
             }
             for other in metadata.parents.iter().filter(|other| other.as_ref() != parent_id) {
