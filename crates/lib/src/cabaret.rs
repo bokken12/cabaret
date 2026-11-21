@@ -574,7 +574,18 @@ impl Cabaret {
             if ctx.metadata(parent_id)?.is_descendant(change_id)? {
                 Err(format!("{parent_id} descends from {change_id}, so it cannot be its parent"))?;
             }
-            ctx.check_all(add_parent_safeguards(metadata, parent_id)?);
+            if ctx.metadata(parent_id)?.archived && !metadata.archived {
+                ctx.check(Safeguard::ArchivedParents { parents: nebts![parent_id.to_owned()] });
+            }
+            for other in metadata.parents.iter().filter(|other| other.as_ref() != parent_id) {
+                if ctx.metadata(other)?.is_descendant(parent_id)? {
+                    ctx.check(Safeguard::RedundantParent { parent: parent_id.to_owned(), descendant: other.clone() });
+                    break;
+                }
+            }
+            if let Some(safeguard) = no_common_ancestor(metadata)? {
+                ctx.check(safeguard);
+            }
             Ok(())
         })
     }
@@ -586,11 +597,21 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
         self.store.update_metadata(allow, change_id, |ctx, metadata| {
-            let before = metadata.clone();
+            let before = metadata.parents()?;
             if !metadata.parents.remove(parent_id) {
                 return Ok(());
             }
-            ctx.check_all(remove_parent_safeguards(&before, metadata, parent_id)?);
+            let after = metadata.parents()?;
+            let branch = ctx.branch(change_id)?;
+            if branch.base(&before)? != branch.base(&after)? {
+                ctx.check(Safeguard::BaseMoves { removed: parent_id.to_owned() });
+            }
+            if after.is_empty() {
+                ctx.check(Safeguard::Parentless);
+            }
+            if let Some(safeguard) = no_common_ancestor(metadata)? {
+                ctx.check(safeguard);
+            }
             Ok(())
         })
     }
@@ -871,43 +892,6 @@ fn landing_parent<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeI
         [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
         [parent] => Ok((*parent).clone()),
     }
-}
-
-/// What declaring `added` a parent, as `metadata` now does, risks.
-fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result<Vec<Safeguard>> {
-    let ctx = metadata.ctx();
-    let mut safeguards = Vec::new();
-    if ctx.metadata(added)?.archived && !metadata.archived {
-        safeguards.push(Safeguard::ArchivedParents { parents: nebts![added.to_owned()] });
-    }
-    for other in metadata.parents.iter().filter(|other| other.as_ref() != added) {
-        if ctx.metadata(other)?.is_descendant(added)? {
-            safeguards.push(Safeguard::RedundantParent { parent: added.to_owned(), descendant: other.clone() });
-            break;
-        }
-    }
-    safeguards.extend(no_common_ancestor(metadata)?);
-    Ok(safeguards)
-}
-
-/// What removing `removed` from `before`'s parents, as `after` has done, risks.
-fn remove_parent_safeguards(
-    before: &Metadata<'_>,
-    after: &Metadata<'_>,
-    removed: &ChangeIdRef,
-) -> Result<Vec<Safeguard>> {
-    let ctx = after.ctx();
-    let mut safeguards = Vec::new();
-    let (old, new) = (before.parents()?, after.parents()?);
-    let branch = ctx.branch(after.id())?;
-    if branch.base(&old)? != branch.base(&new)? {
-        safeguards.push(Safeguard::BaseMoves { removed: removed.to_owned() });
-    }
-    if new.is_empty() {
-        safeguards.push(Safeguard::Parentless);
-    }
-    safeguards.extend(no_common_ancestor(after)?);
-    Ok(safeguards)
 }
 
 /// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.

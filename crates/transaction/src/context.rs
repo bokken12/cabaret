@@ -68,13 +68,6 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(())
     }
 
-    // TODO(joel): delete this
-    pub fn check_all(&self, safeguards: Vec<Safeguard>) {
-        for safeguard in safeguards {
-            self.check(safeguard);
-        }
-    }
-
     pub fn confirm(&self) -> Result<()> {
         let refused = self.violated_safeguards.iter().cloned().collect();
         if let Some(refused) = NEVec::try_from_vec(refused) {
