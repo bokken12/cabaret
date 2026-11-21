@@ -545,8 +545,8 @@ impl Cabaret {
             }
             let you = ctx.identity()?;
             let others = metadata.owners.difference(owners).filter(|owner| **owner != you).cloned().collect();
-            if let Some(owners) = NEBTreeSet::try_from_set(others) {
-                ctx.check(Safeguard::RemovesOthers { owners });
+            if let Some(others) = NEBTreeSet::try_from_set(others) {
+                ctx.check(Safeguard::RemovesOthers { owners: others });
             }
             if owners.is_empty() {
                 ctx.check(Safeguard::Ownerless);
