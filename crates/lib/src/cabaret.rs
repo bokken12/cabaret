@@ -383,49 +383,41 @@ impl Cabaret {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
+            let parents = child.parents()?;
             let merged = parent.merge(child_branch, "land")?;
-            let conflicted = merged.as_ref().is_some_and(|conflicts| !conflicts.is_empty())
-                || !child_branch.conflicted_files(&child.parents()?)?.is_empty();
-            if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
+            let conflicts: BTreeSet<RepoPath> =
+                child_branch.conflicted_files(&parents)?.into_iter().chain(merged.iter().flatten().cloned()).collect();
+            let parent_metadata = ctx.metadata(&parent_id)?;
+            let grandparents = parent_metadata.parents()?;
+            if !conflicts.is_empty() && grandparents.is_empty() {
                 Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
             }
 
-            // TODO(joel): simplify post-inlining
-
             ctx.check_owner(change_id)?;
-
-            let parents = child.parents()?;
             if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(child, child_branch, &parents)?) {
                 ctx.check(Safeguard::Unreviewed { reviewers });
             }
             if let Some(owners) = NEBTreeSet::try_from_set(child.unendorsed()) {
                 ctx.check(Safeguard::Unendorsed { owners });
             }
-            let parent = ctx.metadata(&parent_id)?;
-            let grandparents = parent.parents()?;
             // A root has no diff of its own to review.
             if !grandparents.is_empty()
                 && let Some(reviewers) =
-                    NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(&parent_id)?, &grandparents)?)
+                    NEBTreeSet::try_from_set(unreviewed(parent_metadata, ctx.branch(&parent_id)?, &grandparents)?)
             {
-                ctx.check(Safeguard::ParentUnreviewed { parent: parent_id.to_owned(), reviewers });
+                ctx.check(Safeguard::ParentUnreviewed { parent: parent_id.clone(), reviewers });
             }
-            match merged {
-                None => ctx.check(Safeguard::Empty { parent: parent_id.to_owned() }),
-                Some(conflicts) => {
-                    let files =
-                        child_branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
-                    if let Some(files) = NEBTreeSet::try_from_set(files) {
-                        ctx.check(Safeguard::Conflicted { files });
-                    }
-                }
+            if merged.is_none() {
+                ctx.check(Safeguard::Empty { parent: parent_id.clone() });
+            }
+            if let Some(files) = NEBTreeSet::try_from_set(conflicts) {
+                ctx.check(Safeguard::Conflicted { files });
             }
             if let Some(workspace) = child_branch.workspace()?
                 && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
             {
                 ctx.check(Safeguard::Uncommitted { workspace });
             }
-
             if !child.permanent {
                 child.archived = true;
             }
@@ -446,9 +438,6 @@ impl Cabaret {
         self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
             let targets = rebase_targets(metadata, onto)?;
-
-            // TODO(joel): clean up post-inlining
-
             ctx.check_owner(change_id)?;
             if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
                 ctx.check(Safeguard::Conflicted { files });

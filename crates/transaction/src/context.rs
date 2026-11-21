@@ -63,8 +63,8 @@ impl<'ctx> TransactionContext<'ctx> {
         let you = self.identity()?;
         let owners = &self.metadata(change_id)?.owners;
         if !owners.contains(&you) {
-            self.check(Safeguard::NonOwner { you, owners: owners.clone() })
-        };
+            self.check(Safeguard::NonOwner { you, owners: owners.clone() });
+        }
         Ok(())
     }
 
