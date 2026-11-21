@@ -1,0 +1,1 @@
+Inline `add_parent_safeguards` and `remove_parent_safeguards` into `add_parent` and `remove_parent`, checking each safeguard directly, and delete `TransactionContext::check_all`, which nothing calls any more. `remove_parent` now keeps only the parents it computed before the removal rather than cloning the whole metadata.
