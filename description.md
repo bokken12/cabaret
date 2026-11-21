@@ -1,0 +1,1 @@
+Inline `owners_safeguards` into `remove_owner` and `set_owners`, checking each safeguard directly. Removing a single owner no longer needs a before/after set difference: it removes others exactly when the removed owner isn't you.
