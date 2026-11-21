@@ -520,11 +520,15 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
         self.store.update_metadata(allow, change_id, |ctx, metadata| {
-            let before = metadata.owners.clone();
             if !metadata.owners.remove(owner) {
                 return Ok(());
             }
-            ctx.check_all(owners_safeguards(&ctx.identity()?, &before, &metadata.owners));
+            if *owner != ctx.identity()? {
+                ctx.check(Safeguard::RemovesOthers { owners: nebts![owner.clone()] });
+            }
+            if metadata.owners.is_empty() {
+                ctx.check(Safeguard::Ownerless);
+            }
             Ok(())
         })
     }
@@ -539,7 +543,14 @@ impl Cabaret {
             if metadata.owners == *owners {
                 return Ok(());
             }
-            ctx.check_all(owners_safeguards(&ctx.identity()?, &metadata.owners, owners));
+            let you = ctx.identity()?;
+            let others = metadata.owners.difference(owners).filter(|owner| **owner != you).cloned().collect();
+            if let Some(owners) = NEBTreeSet::try_from_set(others) {
+                ctx.check(Safeguard::RemovesOthers { owners });
+            }
+            if owners.is_empty() {
+                ctx.check(Safeguard::Ownerless);
+            }
             metadata.owners.clone_from(owners);
             Ok(())
         })
@@ -860,17 +871,6 @@ fn landing_parent<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeI
         [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
         [parent] => Ok((*parent).clone()),
     }
-}
-
-/// What changing a change's owners from `before` to `after` risks, done by `you`.
-fn owners_safeguards(you: &Identity, before: &BTreeSet<Identity>, after: &BTreeSet<Identity>) -> Vec<Safeguard> {
-    let others: BTreeSet<Identity> = before.difference(after).filter(|owner| *owner != you).cloned().collect();
-    let mut safeguards =
-        Vec::from_iter(NEBTreeSet::try_from_set(others).map(|owners| Safeguard::RemovesOthers { owners }));
-    if after.is_empty() {
-        safeguards.push(Safeguard::Ownerless);
-    }
-    safeguards
 }
 
 /// What declaring `added` a parent, as `metadata` now does, risks.
