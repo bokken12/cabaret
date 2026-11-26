@@ -1,0 +1,12 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/config.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/workspace.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/branch.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/context.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/revision.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/store.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/tree.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/workspace.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/tree_id.rs","revision":"303c69c9874ef15be85fd1e6a64f0967937dd066"}
