@@ -1,10 +1,13 @@
 # Transaction
 
-Most of Cabaret's internal change-state-mutating operations are implemented as "transactions". These give some nice properties:
+Most of Cabaret's internal change-state-mutating operations are implemented as "transactions". That is:
 
-- They lock any changes undergoing mutation so that the mutating in-memory representation can be treated as the source of truth throughout the operation until it has been written.
-- They keep a single persistent view of each change's state during the transaction, making them a pure function of change state.
-- They prevent the implementations from having to think in terms of log actions and manually check things like avoiding no-op actions.
-- They guarantee that the operation is atomic and will not be partially completed.
+- Their effects can be summarized as edits to refs (fast-forwarding a metadata log or branch, updating a workspace, etc) which can all be performed atomically at the end of the transaction (although they may first do some preliminary uncommitted work to prepare these ref edits).
+- They may hit against various errors or safeguards in the course of operation, in which case they can abort the entire transaction.
+- They should keep a single persistent view of each change's state throughout the transaction.
 
-Certainly the locking here is of limited power in a distributed system: a different device may execute an unrelated transaction simultaneous to yours. Additionally, the file operations when updating a workspace cannot be fully atomic. Cabaret tries to define its operations to be well-behaving in the face of this: e.g., committing to an already-landed change is allowed and the change can be re-landed to pick up the new changes. Likewise, the parent set is dynamically computed to make sense in the face of archiving and similar. Nonetheless, this provides some nice properties on a single device.
+Note that at the end of the day, rather than being serialized to a single transaction log as the source of truth, the individual refs are treated as decisive. This means that transactions are not truly atomic in the log.
+
+Nonetheless, Cabaret attempts to nudge towards convenient semantics, e.g. locking refs which a transaction edits, so that, at least in the context of a single device, transactions cannot overlap.
+
+Across devices, Cabaret attempts to define its transactions to be resilient to ordinary distributed systems problems: e.g., a change which has already been landed but which receives additional commits may be re-landed into its parent to adopt the new diff.
