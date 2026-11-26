@@ -5,7 +5,7 @@ use std::{
 };
 
 use cabaret_config::Hints;
-use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Tag, Target};
+use cabaret_page::{DiffView, Fold, Line, NextStep, Page, Segment, TabCounts, Tag, Target};
 use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, Reviewing, RevisionId};
 use expect_test::expect;
 use nonempty_collections::nebts;
@@ -476,4 +476,23 @@ fn hidden_next_step_hint_keeps_the_action_and_parent_link() {
         [Accent|Next step:] [Accent|rebase onto] [ChangeId>change:main|main]
     "#]]
     .assert_eq(&markup(&Page { lines: vec![line.clone()], ..Page::default() }));
+}
+
+#[test]
+fn inserted_page_moves_later_folds_and_cursor_down() {
+    let fold = |start, end| Fold { start, end };
+    let page =
+        |lines: &[&str], folds, cursor| Page { lines: lines.iter().copied().map(Line::plain).collect(), folds, cursor };
+    let mut outer = page(&["heading", "files", "  a", "  b"], vec![fold(1, 3)], 2);
+    outer.insert(1, page(&["tabs", "  hint"], vec![fold(0, 1)], 0));
+    expect![[r#"
+           heading
+        ╭  tabs
+        ╰    hint
+        ╭  files
+        │    a
+        ╰    b
+        cursor 4
+    "#]]
+    .assert_eq(&format!("{}cursor {}\n", super::with_folds(&outer, &outer.to_string()), outer.cursor));
 }

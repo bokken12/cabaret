@@ -8,8 +8,8 @@ mod workspace;
 pub use cabaret::{Cabaret, Rebase};
 pub use cabaret_config::{FetchInterval, Hints, Prefix, Scope, Setting};
 pub use cabaret_page::{
-    DiffView, FileTree, Fold, Home, HomeGraph, HomeNode, HomeSection, Line, NextStep, Page, Segment, TabCounts, Tag,
-    Target, name,
+    DiffView, FileTree, Fold, Home, HomeGraph, HomeNode, HomeSection, Line, NextStep, Page, Route, Segment, TabCounts,
+    Tag, Target, name,
 };
 pub use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
