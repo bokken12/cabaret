@@ -175,7 +175,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
           parents left right
           owners alice@example.com
           title join
-          base ee2f96b1
+          base ac7b6c93
           diff ~file.txt
     "#]]
     .assert_eq(&fixture.describe("join"));

@@ -14,7 +14,7 @@ use cabaret_types::{
     RepoPath, Result, Reviewing, RevisionId, ViewDiff,
     safeguard::{Safeguard, SafeguardKind},
 };
-use jiff::Zoned;
+use jiff::ZonedDateTime;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator, nebts};
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -65,8 +65,14 @@ impl Cabaret {
         }
         match from {
             Some(url) => {
-                gix::prepare_clone_bare(url, dir.join(".bare"))?
+                // Bare clones otherwise mirror origin's branches as local ones; fetch keeps
+                // those apart as remote-tracking refs.
+                let (repo, _) = gix::prepare_clone_bare(url, dir.join(".bare"))?
+                    .configure_remote(|remote| {
+                        remote.with_refspecs(["+refs/heads/*:refs/remotes/origin/*"], gix::remote::Direction::Fetch)
+                    })
                     .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+                track_origin_head(&repo)?;
             }
             None => {
                 gix::init_bare(dir.join(".bare"))?;
@@ -253,7 +259,7 @@ impl Cabaret {
 
     /// The id a change named `name` is created under: `name` behind the configured prefix.
     fn claim(&self, name: &str) -> Result<ChangeId> {
-        self.config::<Prefix>()?.unwrap_or_default().apply(name, &Zoned::now())
+        self.config::<Prefix>()?.unwrap_or_default().apply(name, &ZonedDateTime::now())
     }
 
     /// Create a change named `name` on `parent_ids`, returning its id. Safeguards not in `allow`
@@ -804,6 +810,29 @@ impl Cabaret {
     pub fn first_home_section(&self, viewer: &Identity) -> Result<HomeSection> {
         Ok(self.home(viewer)?.first_section())
     }
+}
+
+/// Record origin's default branch as `origin/HEAD` and check it out as a local branch, as a
+/// non-bare clone does; a bare clone leaves `HEAD` naming a branch it never made.
+fn track_origin_head(repo: &gix::Repository) -> Result<()> {
+    use gix::refs::{
+        Target,
+        transaction::{Change, LogChange, PreviousValue, RefEdit},
+    };
+    let Some(head) = repo.head_name()? else { return Ok(()) };
+    let tracking: gix::refs::FullName = format!("refs/remotes/origin/{}", head.shorten()).try_into()?;
+    let Some(mut tip) = repo.try_find_reference(&tracking)? else { return Ok(()) };
+    repo.reference(head, tip.peel_to_id()?.detach(), PreviousValue::MustNotExist, "clone: from origin")?;
+    repo.edit_reference(RefEdit {
+        change: Change::Update {
+            log: LogChange::default(),
+            expected: PreviousValue::MustNotExist,
+            new: Target::Symbolic(tracking),
+        },
+        name: "refs/remotes/origin/HEAD".try_into()?,
+        deref: false,
+    })?;
+    Ok(())
 }
 
 /// `None` for a change that cannot land: an archived one, or a root.

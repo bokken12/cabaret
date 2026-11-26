@@ -33,20 +33,20 @@ cabaret-page = { path = "crates/page" }
 cabaret-transaction = { path = "crates/transaction" }
 cabaret-types = { path = "crates/types" }
 
-clap = { version = "4.6.6", features = ["derive"] }
+clap = { version = "4.6.10", features = ["derive"] }
 elsa = "1.11.2"
 expect-test = "1.5.1"
-clap_complete = { version = "4.6.9", features = ["unstable-dynamic"] }
+clap_complete = { version = "4.6.12", features = ["unstable-dynamic"] }
 humantime = "2.4.0"
-libc = "0.2.189"
-jiff = "0.2.37"
-gix = { version = "0.86.0", features = ["blocking-network-client", "blocking-http-transport-curl", "merge"] }
-napi = { version = "3.12.1", default-features = false, features = ["napi8", "tokio_rt"] }
-napi-build = "2.4.1"
-napi-derive = "3.6.3"
-nonempty-collections = "1.4.0"
+libc = "0.2.191"
+jiff = "1.0.3"
+gix = { version = "0.91.0", features = ["blocking-network-client", "blocking-http-transport-curl", "merge"] }
+napi = { version = "3.16.3", default-features = false, features = ["napi8", "tokio_rt"] }
+napi-build = "2.7.0"
+napi-derive = "3.7.2"
+nonempty-collections = "1.5.0"
 ref-cast = "1.0.27"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = "1.0.154"
 strum = { version = "0.28.0", features = ["derive"] }
-tempfile = "3.23.0"
+tempfile = "3.27.0"

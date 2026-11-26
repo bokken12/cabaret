@@ -1,7 +1,7 @@
 use std::{fmt, fmt::Display, fs, str::FromStr};
 
 use cabaret_types::{Error, Result};
-use gix::{Repository, bstr::ByteSlice};
+use gix::{Repository, bstr::ByteSlice, fs::SharedPermissions};
 
 /// A value cabaret keeps in git config under `KEY`, stored as its `Display` and read back by
 /// its `FromStr`.
@@ -63,7 +63,12 @@ fn edit(repo: &Repository, scope: Scope, edit: impl FnOnce(&mut gix::config::Fil
             (path, source)
         }
     };
-    let mut lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None)?;
+    let mut lock = gix::lock::File::acquire_to_update_resource(
+        &path,
+        gix::lock::acquire::Fail::Immediately,
+        None,
+        SharedPermissions::Umask,
+    )?;
     let mut file = match fs::exists(&path)? {
         true => gix::config::File::from_path_no_includes(path.clone(), source)?,
         false => gix::config::File::new(gix::config::file::Metadata::from(source)),

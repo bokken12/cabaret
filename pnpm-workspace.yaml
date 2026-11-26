@@ -9,13 +9,13 @@ allowBuilds:
   keytar: false
 
 catalog:
-  "oxfmt": 0.66.0
-  "oxlint": 1.81.0
-  "@napi-rs/cli": 3.8.6
-  "@types/node": 22.20.1
+  "oxfmt": 0.80.0
+  "oxlint": 1.95.0
+  "@napi-rs/cli": 3.11.1
+  "@types/node": 22.20.7
   typescript: 7.0.2
   esbuild: 0.28.2
-  "@vscode/vsce": 3.9.2
+  "@vscode/vsce": 4.1.1
   "@vscode/test-cli": 0.0.15
   "@vscode/test-electron": 3.1.0
   "@types/mocha": 10.0.10

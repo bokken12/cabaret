@@ -8,7 +8,6 @@
 
 use std::{
     collections::BTreeSet,
-    convert::Infallible,
     fmt, fs, io,
     ops::ControlFlow,
     path::{Path, PathBuf},
@@ -20,6 +19,7 @@ use cabaret_types::{
 use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
+    fs::SharedPermissions,
     index::entry::{Flags, Stage, Stat},
     merge::{blob::builtin_driver::text::Labels, tree::TreatAsUnresolved},
     objs::tree::EntryKind,
@@ -114,7 +114,7 @@ impl<'ctx> Workspace<'ctx> {
         // Canonical, as a linked workspace reaches its common dir through `..` segments that
         // stop resolving once that workspace is removed.
         let common_dir = fs::canonicalize(self.ctx.repo.common_dir())?;
-        let admin = common_dir.join("worktrees").join(gix::path::from_bstr(id));
+        let admin = common_dir.join("worktrees").join(gix::path::from_bstr(id)?);
         if admin.exists() {
             Err(format!("workspace {id} already exists"))?;
         }
@@ -256,7 +256,7 @@ impl<'ctx> Workspace<'ctx> {
         for (entry, path) in index.entries_mut_with_paths() {
             entry.stat = match hashed.contains(path) {
                 true => {
-                    let disk = workdir.join(gix::path::from_bstr(path));
+                    let disk = workdir.join(gix::path::from_bstr(path)?);
                     Stat::from_fs(&gix::index::fs::Metadata::from_path_no_follow(&disk)?)?
                 }
                 false => match old.entry_by_path(path) {
@@ -265,7 +265,7 @@ impl<'ctx> Workspace<'ctx> {
                 },
             };
         }
-        index.write(gix::index::write::Options::default())?;
+        index.write(gix::index::write::Options::default(), SharedPermissions::Umask)?;
         Ok(tree)
     }
 
@@ -284,7 +284,7 @@ impl<'ctx> Workspace<'ctx> {
             index.dangerously_push_entry(entry.stat, entry.id, entry.flags, entry.mode, entry.path(&written));
         }
         index.sort_entries();
-        index.write(gix::index::write::Options::default())?;
+        index.write(gix::index::write::Options::default(), SharedPermissions::Umask)?;
         Ok(())
     }
 
@@ -332,7 +332,7 @@ impl<'ctx> Workspace<'ctx> {
                 continue;
             }
             if let Deletion { location, .. } | Modification { location, .. } = &change {
-                let path = workdir.join(gix::path::from_bstr(location));
+                let path = workdir.join(gix::path::from_bstr(location)?);
                 fs::remove_file(&path)?;
                 prune_empty_dirs(workdir, path.parent().expect("workspace files have a parent"));
                 removed.insert(location.clone());
@@ -375,7 +375,7 @@ impl TransactionContext<'_> {
             workspaces.push(WorkspaceId::Main);
         }
         for proxy in self.repo.worktrees()? {
-            workspaces.push(WorkspaceId::Linked(proxy.id().to_owned()));
+            workspaces.push(WorkspaceId::Linked(proxy.id()?.to_owned()));
         }
         Ok(workspaces)
     }
@@ -383,7 +383,7 @@ impl TransactionContext<'_> {
     /// The workspace this transaction's repository was opened in.
     pub fn current_workspace(&self) -> Result<WorkspaceId> {
         let worktree = self.repo.worktree().ok_or("not opened inside a workspace")?;
-        Ok(match worktree.id() {
+        Ok(match worktree.id()? {
             None => WorkspaceId::Main,
             Some(id) => WorkspaceId::Linked(id.to_owned()),
         })
@@ -401,7 +401,7 @@ fn write_index(repo: &Repository, tree: &Tree<'_>, written: &gix::index::State) 
             _ => Stat::default(),
         };
     }
-    index.write(gix::index::write::Options::default())?;
+    index.write(gix::index::write::Options::default(), SharedPermissions::Umask)?;
     Ok(())
 }
 
@@ -426,7 +426,7 @@ fn open(repo: &Repository, workspace: WorkspaceIdRef<'_>) -> Result<Repository> 
     match workspace {
         WorkspaceIdRef::Main => Ok(repo.main_repo()?),
         WorkspaceIdRef::Linked(id) => {
-            let proxy = repo.worktree_proxy_by_id(id).ok_or_else(|| format!("no workspace {id}"))?;
+            let proxy = repo.worktree_proxy_by_id(id)?.ok_or_else(|| format!("no workspace {id}"))?;
             Ok(proxy.into_repo_with_possibly_inaccessible_worktree()?)
         }
     }
@@ -450,7 +450,9 @@ fn disk_tree(repo: &Repository, pathspecs: &[Pathspec]) -> Result<(TreeId, BTree
         use gix::diff::index::ChangeRef::{Addition, Deletion, Modification, Rewrite};
         match change {
             Addition { location, entry_mode, id, .. } | Modification { location, entry_mode, id, .. } => {
-                let mode = entry_mode.to_tree_entry_mode().ok_or_else(|| format!("{location} has no tree mode"))?;
+                let mode = entry_mode
+                    .to_tree_entry_mode()
+                    .ok_or_else(|| gix::Error::from_error(gix::error::message!("{location} has no tree mode")))?;
                 editor.upsert(location.as_ref(), mode.kind(), id.into_owned())?;
             }
             Deletion { location, .. } => {
@@ -458,14 +460,15 @@ fn disk_tree(repo: &Repository, pathspecs: &[Pathspec]) -> Result<(TreeId, BTree
             }
             Rewrite { .. } => unreachable!("rewrite tracking is disabled"),
         }
-        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ControlFlow::Continue(()))
+        Ok(ControlFlow::Continue(()))
     })?;
 
     // Each changed path gets whatever is on disk there now, so a removal and a file gone
     // since the walk read the same.
     let mut hashed = BTreeSet::new();
     for path in changed_paths(repo, patterns())? {
-        let disk = workdir.join(gix::path::from_bstr(path.as_bstr()));
+        let relative = gix::path::from_bstr(path.as_bstr())?;
+        let disk = workdir.join(&relative);
         let metadata = match disk.symlink_metadata() {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -477,11 +480,10 @@ fn disk_tree(repo: &Repository, pathspecs: &[Pathspec]) -> Result<(TreeId, BTree
         let file_type = metadata.file_type();
         // TODO-someday(joel): symlinks on a filesystem without them are committed as files
         let (kind, blob) = if file_type.is_symlink() {
-            let target = gix::path::into_bstr(fs::read_link(&disk)?);
+            let target = gix::path::into_bstr(fs::read_link(&disk)?)?;
             (EntryKind::Link, repo.write_blob(target.as_ref())?)
         } else if file_type.is_file() {
-            let content =
-                filters.convert_to_git(fs::File::open(&disk)?, &gix::path::from_bstr(path.as_bstr()), &attributes)?;
+            let content = filters.convert_to_git(fs::File::open(&disk)?, &relative, &attributes)?;
             let kind = match executable_bit && gix::fs::is_executable(&metadata) {
                 true => EntryKind::BlobExecutable,
                 false => EntryKind::Blob,
@@ -539,7 +541,7 @@ fn status(repo: &Repository, tree: &Tree<'_>) -> Result<Status> {
     let mut index_matches = true;
     repo.tree_index_status(&tree.id, &*repo.index_or_empty()?, None, TrackRenames::Disabled, |_, _, _| {
         index_matches = false;
-        Ok::<_, Infallible>(ControlFlow::Break(()))
+        Ok(ControlFlow::Break(()))
     })?;
     if !index_matches {
         return Ok(Status::Modified);

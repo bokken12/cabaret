@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use cabaret_types::{ChangeId, Error, Result};
-use jiff::{Timestamp, Zoned, fmt::strtime, tz::TimeZone};
+use jiff::{Timestamp, ZonedDateTime, fmt::strtime, tz::TimeZone};
 
 use crate::Setting;
 
@@ -12,7 +12,7 @@ pub struct Prefix(String);
 
 impl Prefix {
     /// The id of a change named `name` created at `now`.
-    pub fn apply(&self, name: &str, now: &Zoned) -> Result<ChangeId> {
+    pub fn apply(&self, name: &str, now: &ZonedDateTime) -> Result<ChangeId> {
         Ok(format!("{}{name}", strtime::format(&self.0, now)?).parse()?)
     }
 }
@@ -23,7 +23,7 @@ impl FromStr for Prefix {
     fn from_str(template: &str) -> Result<Self> {
         let prefix = Self(template.to_owned());
         prefix
-            .apply("name", &Timestamp::UNIX_EPOCH.to_zoned(TimeZone::UTC))
+            .apply("name", &Timestamp::UNIX_EPOCH.to_zoned_datetime(TimeZone::UTC))
             .map_err(|error| format!("{template:?} cannot prefix a change id: {error:?}"))?;
         Ok(prefix)
     }

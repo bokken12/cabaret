@@ -208,13 +208,14 @@ impl<'ctx> TransactionContext<'ctx> {
         })
     }
 
-    pub fn merge_base(&self, one: RevisionId, two: RevisionId) -> Result<RevisionId> {
+    /// `None` when `one` and `two` share no history.
+    pub fn merge_base(&self, one: RevisionId, two: RevisionId) -> Result<Option<RevisionId>> {
         // TODO(joel): use `merge_base_with_graph`
-        Ok(RevisionId(self.repo.merge_base(one, two)?.detach()))
+        Ok(self.repo.merge_base(one, two)?.map(|id| RevisionId(id.detach())))
     }
 
     pub fn is_predecessor(&self, predecessor: RevisionId, successor: RevisionId) -> Result<bool> {
-        Ok(self.merge_base(predecessor, successor)? == predecessor)
+        Ok(self.merge_base(predecessor, successor)? == Some(predecessor))
     }
 
     /// The members of `revisions` that precede no other member.

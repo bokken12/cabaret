@@ -4,7 +4,7 @@ use jiff::{Timestamp, tz::TimeZone};
 
 /// `template` applied to `foo` on 2026-09-24 at 15:04:05 UTC, or why it cannot be.
 fn check(template: &str, expected: &Expect) {
-    let now = "2026-09-24T15:04:05Z".parse::<Timestamp>().unwrap().to_zoned(TimeZone::UTC);
+    let now = "2026-09-24T15:04:05Z".parse::<Timestamp>().unwrap().to_zoned_datetime(TimeZone::UTC);
     let applied = template.parse::<Prefix>().and_then(|prefix| prefix.apply("foo", &now));
     expected.assert_eq(&match applied {
         Ok(id) => id.to_string(),

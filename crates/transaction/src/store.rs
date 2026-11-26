@@ -8,6 +8,7 @@ use std::{
 use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
 use gix::{
     ThreadSafeRepository,
+    fs::SharedPermissions,
     lock::{Marker, acquire::Fail},
     refs::{
         Target,
@@ -160,7 +161,12 @@ impl Store {
         for id in ids {
             let mode = Fail::AfterDurationWithBackoff(LOCK_TIMEOUT);
             // TODO-someday(joel): sanitize string representation
-            locks.push(Marker::acquire_to_hold_resource(dir.join(id.to_string()), mode, Some(dir.clone()))?);
+            locks.push(Marker::acquire_to_hold_resource(
+                dir.join(id.to_string()),
+                mode,
+                Some(dir.clone()),
+                SharedPermissions::Umask,
+            )?);
         }
         Ok(locks)
     }

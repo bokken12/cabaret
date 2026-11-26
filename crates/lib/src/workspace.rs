@@ -93,7 +93,7 @@ impl Cabaret {
         let main = self.store.repo.to_thread_local().main_repo()?;
         // `~` for the slashes a directory name cannot hold; git forbids it in branch names, so no
         // two changes share a directory
-        let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "~"));
+        let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "~"))?;
         let Some(workdir) = main.workdir() else {
             // Canonical, as a linked workspace reaches its common dir through `..` segments.
             let git_dir = fs::canonicalize(main.git_dir())?;

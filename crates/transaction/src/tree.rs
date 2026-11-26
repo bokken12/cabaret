@@ -36,7 +36,7 @@ pub(crate) fn changed_files(
 pub fn pathspec_search<'repo>(repo: &'repo Repository, pathspecs: &[Pathspec]) -> Result<gix::Pathspec<'repo>> {
     let search = |pathspecs: Vec<&Pathspec>| {
         gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
-            Err("attribute pathspecs are not supported".into())
+            Err(gix::Error::from_error(gix::error::message("attribute pathspecs are not supported")))
         })
     };
     let all = search(pathspecs.iter().collect())?;

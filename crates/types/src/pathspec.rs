@@ -14,7 +14,7 @@ impl Pathspec {
 }
 
 impl FromStr for Pathspec {
-    type Err = pathspec::parse::Error;
+    type Err = gix::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         pathspec::parse(s.as_bytes(), pathspec::Defaults::default()).map(Self)

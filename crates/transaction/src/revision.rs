@@ -9,7 +9,7 @@ impl<'ctx> Revision<'ctx> {
     pub fn id(&self) -> RevisionId { RevisionId(self.0.id) }
 
     pub fn is_predecessor(&self, successor: &Revision<'ctx>) -> Result<bool> {
-        Ok(self.0.repo.merge_base(self.id(), successor.id())?.detach() == self.0.id)
+        Ok(self.0.repo().merge_base(self.id(), successor.id())?.is_some_and(|base| base == self.0.id))
     }
 
     pub fn is_successor(&self, predecessor: &Revision<'ctx>) -> Result<bool> { predecessor.is_predecessor(self) }

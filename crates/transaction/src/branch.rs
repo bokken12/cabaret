@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Error, Pathspec, RepoPath, Result, RevisionId, TreeId};
 use gix::{
     bstr::ByteSlice,
     merge::{
@@ -39,7 +39,10 @@ impl<'ctx> Branch<'ctx> {
     /// keeping only the maximal ones. A root is its own base, so presents no diff.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<NEBTreeSet<RevisionId>> {
         let ctx = self.ctx;
-        let merge_base = |parent: &ChangeId| ctx.merge_base(self.tip, ctx.branch(parent)?.tip);
+        let merge_base = |parent: &ChangeId| {
+            ctx.merge_base(self.tip, ctx.branch(parent)?.tip)?
+                .ok_or_else(|| Error::from(format!("{} shares no history with {parent}", self.id)))
+        };
         let mut parents = parents.iter();
         let Some(first) = parents.next() else { return Ok(NEBTreeSet::new(self.tip)) };
         let mut candidates = NEBTreeSet::new(merge_base(first)?);

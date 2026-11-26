@@ -241,6 +241,7 @@ impl Fixture {
             locks.join(change),
             gix::lock::acquire::Fail::Immediately,
             Some(locks),
+            gix::fs::SharedPermissions::Umask,
         )
         .unwrap()
     }
@@ -270,7 +271,7 @@ impl Fixture {
         let mut index = self.repo.open_index().unwrap();
         index.dangerously_push_entry(Stat::default(), blob, Flags::empty(), Mode::FILE, path.into());
         index.sort_entries();
-        index.write(gix::index::write::Options::default()).unwrap();
+        index.write(gix::index::write::Options::default(), gix::fs::SharedPermissions::Umask).unwrap();
     }
 
     /// Leave the main workspace partway through a `git merge` of `change`, as one stopped for
@@ -286,7 +287,7 @@ impl Fixture {
         let mut index = self.repo.open_index().unwrap();
         index.dangerously_push_entry(Stat::default(), blob, Flags::from_stage(Stage::Ours), Mode::FILE, path.into());
         index.sort_entries();
-        index.write(gix::index::write::Options::default()).unwrap();
+        index.write(gix::index::write::Options::default(), gix::fs::SharedPermissions::Umask).unwrap();
     }
 
     pub fn exists(&self, path: &str) -> bool { self.repo.workdir().unwrap().join(path).exists() }
@@ -364,7 +365,7 @@ impl Fixture {
         }
         let tree = repo.head_commit().unwrap().tree_id().unwrap();
         let mut index = repo.index_from_tree(&tree).unwrap();
-        index.write(gix::index::write::Options::default()).unwrap();
+        index.write(gix::index::write::Options::default(), gix::fs::SharedPermissions::Umask).unwrap();
     }
 
     fn files_at(&self, revision: RevisionId) -> BTreeMap<String, String> {
