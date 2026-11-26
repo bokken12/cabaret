@@ -18,7 +18,7 @@ use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
 // TODO-someday(joel): impl !Send + !Sync for TransactionContext
-// TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
+// TODO-someday(joel): rename `TransactionContext` -> `Transaction` and `ctx` -> `txn`?
 // TODO(joel): each ref is read when first asked for, so another transaction's write to several
 // can be seen half applied; think about giving a transaction a single consistent view.
 /// One transaction's view of the repository, holding its resources' locks
