@@ -104,10 +104,10 @@ impl fmt::Display for Safeguard {
             Self::RemovesOthers { owners } => write!(f, "{} would no longer own it", joined(owners)),
             Self::Uncommitted { workspace } => write!(f, "workspace {workspace} has uncommitted changes"),
             Self::Unendorsed { owners } => {
-                write!(f, "not all owners have endorsed (remaining: {owners:?})")
+                write!(f, "not all owners have endorsed (remaining: {})", joined(owners))
             }
             Self::Unreviewed { reviewers } => {
-                write!(f, "not all review obligations have been fulfilled (remaining: {reviewers:?})")
+                write!(f, "not all review obligations have been fulfilled (remaining: {})", joined(reviewers))
             }
         }
     }
