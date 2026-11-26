@@ -1,1 +1,1 @@
-{"action":"set-reviewing","reviewing":"owners"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/lib/tests/integration/endorse.rs","revision":"ab8d9eedd7255c28a2f9f346e3f48b7eb4ee8997"}
