@@ -5,7 +5,7 @@ import {
   type Page,
   type RepoPath,
   type RevisionId,
-  type Safeguard,
+  type Refused,
   type SafeguardKind,
   type Segment,
   type Tag,
@@ -1326,22 +1326,25 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
-type Refused = { outcome: "Refused"; safeguards: Safeguard[] };
+function isRefused(result: unknown): result is Refused {
+  return typeof result === "object" && result !== null && "safeguards" in result;
+}
 
 /**
  * `attempt`, and whenever safeguards not yet allowed refuse it, asking whether to `action` anyway
- * and retrying with those allowed too; undefined once the user declines.
+ * and retrying with those allowed too; what it did once it goes ahead, undefined once the user
+ * declines.
  */
-async function despite<Done extends { outcome: "Done" }>(
+async function despite<Done>(
   action: string,
   proceed: string,
   attempt: (allow: Set<SafeguardKind>) => Promise<Done | Refused>,
-): Promise<Done | undefined> {
+): Promise<{ done: Done } | undefined> {
   const allow = new Set<SafeguardKind>();
   for (;;) {
     const result = await attempt(allow);
-    if (result.outcome === "Done") {
-      return result;
+    if (!isRefused(result)) {
+      return { done: result };
     }
     const again = result.safeguards.filter(({ kind }) => allow.has(kind));
     if (again.length > 0) {
@@ -1369,7 +1372,7 @@ async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
   if (rebased === undefined) {
     return { report: `did not rebase ${change}`, complete: false };
   }
-  const { rebase } = rebased;
+  const rebase = rebased.done;
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
@@ -1396,7 +1399,7 @@ async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome 
   if (created === undefined) {
     return undefined;
   }
-  const { change } = created;
+  const change = created.done;
   return { report: `created ${change} with parent ${parent}`, show: { kind: "Show", change } };
 }
 
@@ -1553,7 +1556,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       if (land === undefined) {
         return { report: `did not land ${change}`, complete: false };
       }
-      const landed = `landed ${change} into ${land.into}`;
+      const landed = `landed ${change} into ${land.done}`;
       const workspace = doomed.get(change);
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };
