@@ -14,9 +14,9 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     ViewDiff, WorkspaceId, safeguard::SafeguardKind,
 };
-use napi::bindgen_prelude::spawn_blocking;
+use napi::bindgen_prelude::{Either, spawn_blocking};
 use napi_derive::napi;
-use nonempty_collections::{NEBTreeSet, NEVec};
+use nonempty_collections::NEBTreeSet;
 
 use crate::cabaret::{Cabaret, Rebase};
 
@@ -49,66 +49,25 @@ pub struct Safeguard {
     pub message: String,
 }
 
-fn presented(safeguards: impl IntoIterator<Item = cabaret_types::safeguard::Safeguard>) -> Vec<Safeguard> {
-    let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
-        kind: SafeguardKind::from(&safeguard),
-        message: safeguard.to_string(),
-    };
-    safeguards.into_iter().map(present).collect()
+/// The safeguards that refused an action.
+#[napi(object, object_from_js = false)]
+pub struct Refused {
+    pub safeguards: Vec<Safeguard>,
 }
 
 /// Refusals as a value to present, other failures as the errors they are.
-fn outcome<T>(result: Result<T>) -> Result<std::result::Result<T, NEVec<cabaret_types::safeguard::Safeguard>>> {
+fn attempt<T>(result: Result<T>) -> Result<Either<T, Refused>> {
     match result {
-        Ok(out) => Ok(Ok(out)),
-        Err(Error::Refused(refused)) => Ok(Err(refused)),
+        Ok(done) => Ok(Either::A(done)),
+        Err(Error::Refused(refused)) => {
+            let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
+                kind: SafeguardKind::from(&safeguard),
+                message: safeguard.to_string(),
+            };
+            Ok(Either::B(Refused { safeguards: refused.into_iter().map(present).collect() }))
+        }
         Err(error) => Err(error),
     }
-}
-
-/// What an action with nothing to report did.
-#[napi(discriminant = "outcome", object_from_js = false)]
-pub enum Attempt {
-    Done,
-    Refused { safeguards: Vec<Safeguard> },
-}
-
-impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> for Attempt {
-    fn from(attempt: std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>) -> Self {
-        match attempt {
-            Ok(()) => Self::Done,
-            Err(refused) => Self::Refused { safeguards: presented(refused) },
-        }
-    }
-}
-
-// TODO-someday(joel): maybe there's something cleaner than all of these variants?
-/// What [`Cabaret::create`] did.
-#[napi(discriminant = "outcome", object_from_js = false)]
-pub enum Created {
-    Done { change: ChangeId },
-    Refused { safeguards: Vec<Safeguard> },
-}
-
-/// What [`Cabaret::commit`] did.
-#[napi(discriminant = "outcome", object_from_js = false)]
-pub enum Committed {
-    Done { revision: RevisionId },
-    Refused { safeguards: Vec<Safeguard> },
-}
-
-/// What [`Cabaret::land`] did.
-#[napi(discriminant = "outcome", object_from_js = false)]
-pub enum Landed {
-    Done { into: ChangeId },
-    Refused { safeguards: Vec<Safeguard> },
-}
-
-/// What [`Cabaret::rebase`] did.
-#[napi(discriminant = "outcome", object_from_js = false)]
-pub enum Rebased {
-    Done { rebase: Rebase },
-    Refused { safeguards: Vec<Safeguard> },
 }
 
 fn path_string(path: PathBuf) -> Result<String> {
@@ -211,11 +170,13 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn workspace_remove(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self
-            .blocking(move |cabaret| outcome(cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), &allow)))
-            .await?;
-        Ok(Attempt::from(attempt))
+    pub async fn workspace_remove(
+        &self,
+        change: ChangeId,
+        allow: BTreeSet<SafeguardKind>,
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), &allow)))
+            .await
     }
 
     /// Seconds between background fetches from origin, or `None` for never.
@@ -256,13 +217,15 @@ impl CabaretJs {
 
     /// Check `change` out in the workspace this instance was opened in.
     #[napi]
-    pub async fn workspace_switch(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), &change, &allow))
-            })
-            .await?;
-        Ok(Attempt::from(attempt))
+    pub async fn workspace_switch(
+        &self,
+        change: ChangeId,
+        allow: BTreeSet<SafeguardKind>,
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| {
+            attempt(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), &change, &allow))
+        })
+        .await
     }
 
     /// Commit `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
@@ -273,13 +236,9 @@ impl CabaretJs {
         change: ChangeId,
         files: Vec<ChangedFile>,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Committed> {
+    ) -> napi::Result<Either<RevisionId, Refused>> {
         let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
-        let committed = self.blocking(move |cabaret| outcome(cabaret.commit(&change, &pathspecs, &allow))).await?;
-        Ok(match committed {
-            Ok(revision) => Committed::Done { revision },
-            Err(refused) => Committed::Refused { safeguards: presented(refused) },
-        })
+        self.blocking(move |cabaret| attempt(cabaret.commit(&change, &pathspecs, &allow))).await
     }
 
     /// Discard `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
@@ -297,13 +256,10 @@ impl CabaretJs {
         name: String,
         parent: ChangeId,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Created> {
+    ) -> napi::Result<Either<ChangeId, Refused>> {
         self.blocking(move |cabaret| {
             let parents = NEBTreeSet::new(parent);
-            Ok(match outcome(cabaret.create(&name, &parents, &cabaret.identity()?, &allow))? {
-                Ok(change) => Created::Done { change },
-                Err(refused) => Created::Refused { safeguards: presented(refused) },
-            })
+            attempt(cabaret.create(&name, &parents, &cabaret.identity()?, &allow))
         })
         .await
     }
@@ -326,9 +282,8 @@ impl CabaretJs {
         change: ChangeId,
         owner: Identity,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Attempt> {
-        let removed = self.blocking(move |cabaret| outcome(cabaret.remove_owner(&change, &owner, &allow))).await?;
-        Ok(Attempt::from(removed))
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.remove_owner(&change, &owner, &allow))).await
     }
 
     #[napi]
@@ -337,9 +292,8 @@ impl CabaretJs {
         change: ChangeId,
         parent: ChangeId,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Attempt> {
-        let attempt = self.blocking(move |cabaret| outcome(cabaret.add_parent(&change, &parent, &allow))).await?;
-        Ok(Attempt::from(attempt))
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.add_parent(&change, &parent, &allow))).await
     }
 
     #[napi]
@@ -348,9 +302,8 @@ impl CabaretJs {
         change: ChangeId,
         parent: ChangeId,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Attempt> {
-        let attempt = self.blocking(move |cabaret| outcome(cabaret.remove_parent(&change, &parent, &allow))).await?;
-        Ok(Attempt::from(attempt))
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.remove_parent(&change, &parent, &allow))).await
     }
 
     /// Record that git's user.email has reviewed `files` of `change` up to `head`, defaulting to
@@ -362,9 +315,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn endorse(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self.blocking(move |cabaret| outcome(cabaret.endorse(&change, &allow))).await?;
-        Ok(Attempt::from(attempt))
+    pub async fn endorse(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.endorse(&change, &allow))).await
     }
 
     #[napi]
@@ -383,24 +335,26 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Landed> {
-        let landed = self.blocking(move |cabaret| outcome(cabaret.land(&change, &allow))).await?;
-        Ok(match landed {
-            Ok(into) => Landed::Done { into },
-            Err(refused) => Landed::Refused { safeguards: presented(refused) },
-        })
+    pub async fn land(
+        &self,
+        change: ChangeId,
+        allow: BTreeSet<SafeguardKind>,
+    ) -> napi::Result<Either<ChangeId, Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.land(&change, &allow))).await
     }
 
     #[napi]
-    pub async fn archive(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self.blocking(move |cabaret| outcome(cabaret.archive(&change, &allow))).await?;
-        Ok(Attempt::from(attempt))
+    pub async fn archive(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.archive(&change, &allow))).await
     }
 
     #[napi]
-    pub async fn unarchive(&self, change: ChangeId, allow: BTreeSet<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self.blocking(move |cabaret| outcome(cabaret.unarchive(&change, &allow))).await?;
-        Ok(Attempt::from(attempt))
+    pub async fn unarchive(
+        &self,
+        change: ChangeId,
+        allow: BTreeSet<SafeguardKind>,
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.unarchive(&change, &allow))).await
     }
 
     #[napi]
@@ -409,11 +363,7 @@ impl CabaretJs {
         change: ChangeId,
         onto: Option<ChangeId>,
         allow: BTreeSet<SafeguardKind>,
-    ) -> napi::Result<Rebased> {
-        let rebased = self.blocking(move |cabaret| outcome(cabaret.rebase(&change, onto.as_deref(), &allow))).await?;
-        Ok(match rebased {
-            Ok(rebase) => Rebased::Done { rebase },
-            Err(refused) => Rebased::Refused { safeguards: presented(refused) },
-        })
+    ) -> napi::Result<Either<Rebase, Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.rebase(&change, onto.as_deref(), &allow))).await
     }
 }
