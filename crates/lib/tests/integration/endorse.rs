@@ -37,9 +37,7 @@ fn reviewed_change_endorses() {
 #[test]
 fn unreviewed_refuses_unless_allowed() {
     let fixture = feature();
-    expect![[
-        r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#
-    ]]
+    expect!["refused: not all review obligations have been fulfilled (remaining: alice@example.com)"]
     .assert_eq(&endorse(&fixture, &BTreeSet::new()));
     let allow = BTreeSet::from([SafeguardKind::Unreviewed]);
     expect![[r#"endorsers: {Identity("alice@example.com")}"#]].assert_eq(&endorse(&fixture, &allow));

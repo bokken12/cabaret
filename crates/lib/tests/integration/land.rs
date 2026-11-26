@@ -183,9 +183,7 @@ fn unreviewed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.commit("child", &[("more.txt", "more\n")]);
     let tip = fixture.tip("main");
-    expect![[
-        r#"refused: not all review obligations have been fulfilled (remaining: {Identity("alice@example.com")})"#
-    ]]
+    expect!["refused: not all review obligations have been fulfilled (remaining: alice@example.com)"]
     .assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
@@ -200,7 +198,7 @@ fn unendorsed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.cabaret.unendorse(&id("child")).unwrap();
     let tip = fixture.tip("main");
-    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("alice@example.com")})"#]]
+    expect!["refused: not all owners have endorsed (remaining: alice@example.com)"]
         .assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
@@ -222,13 +220,13 @@ fn endorsement_outlasts_later_commits() {
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();
-    expect![[r#"refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all review obligations have been fulfilled (remaining: {Identity("bob@example.com")}); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land(&fixture, "child"));
-    expect![[r#"refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(&land_allowing(
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all review obligations have been fulfilled (remaining: bob@example.com); not all owners have endorsed (remaining: bob@example.com)"].assert_eq(&land(&fixture, "child"));
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); not all owners have endorsed (remaining: bob@example.com)"].assert_eq(&land_allowing(
         &fixture,
         "child",
         &BTreeSet::from([SafeguardKind::Unreviewed]),
     ));
-    expect![[r#"refused: not all owners have endorsed (remaining: {Identity("bob@example.com")})"#]].assert_eq(
+    expect!["refused: not all owners have endorsed (remaining: bob@example.com)"].assert_eq(
         &land_allowing(&fixture, "child", &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner])),
     );
 }
