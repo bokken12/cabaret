@@ -1,0 +1,8 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/node.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/view_diff.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/src/lib.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/src/page.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/page.rs","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"e2efd8879b809db5056c743a6f71f89764154c2b"}
