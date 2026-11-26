@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use cabaret_lib::{DiffView, FileDiff, Pathspec, RepoPath, RevisionId};
+use cabaret_lib::{DiffView, FileDiff, Pathspec, RepoPath, RevisionId, Route};
 use expect_test::expect;
 
 use super::{
@@ -114,6 +114,21 @@ fn files_page_counts_lines_of_each_diff() {
         ○ image.png binary
         ○ new.txt +1
         ○ old.txt -1
+    "#]]
+    .assert_eq(&page.to_string());
+}
+
+#[test]
+fn files_route_puts_tabs_under_heading() {
+    let fixture = edited(&[("file.txt", "old\n")], &[("file.txt", "new\n")]);
+    let page = fixture.cabaret.page(&Route::Files { view: DiffView::Diff, change: id("change") }).unwrap();
+    expect![[r#"
+        change · changed files
+         ╭──────────┬────────────┬──────────────┬───────────────╮
+         │ overview │ [d] diff 1 │ [r] review 1 │ [w] workspace │
+        ─┴──────────┘            └──────────────┴───────────────┴─
+
+        ○ file.txt +1 -1
     "#]]
     .assert_eq(&page.to_string());
 }

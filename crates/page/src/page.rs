@@ -86,6 +86,24 @@ impl DiffView {
     }
 }
 
+/// A page a frontend opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind"))]
+pub enum Route {
+    /// One section of the home page.
+    Home {
+        section: HomeSection,
+    },
+    Show {
+        change: ChangeId,
+    },
+    /// The page listing the files `change`'s `view` diffs.
+    Files {
+        view: DiffView,
+        change: ChangeId,
+    },
+}
+
 /// Where a piece of text leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind"))]
@@ -342,6 +360,24 @@ impl Page {
         self.lines.extend(other.lines);
         self.folds
             .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + offset, end: fold.end + offset }));
+    }
+
+    /// Put `other`'s lines before line `at`, moving the folds and cursor from there on down past
+    /// them.
+    pub fn insert(&mut self, at: usize, other: Self) {
+        let start = u32::try_from(at).expect("pages are short");
+        let offset = u32::try_from(other.lines.len()).expect("pages are short");
+        assert!(!self.folds.iter().any(|fold| fold.start < start && start <= fold.end), "line {at} is inside a fold");
+        for fold in self.folds.iter_mut().filter(|fold| fold.start >= start) {
+            *fold = Fold { start: fold.start + offset, end: fold.end + offset };
+        }
+        self.folds
+            .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + start, end: fold.end + start }));
+        self.folds.sort_by_key(|fold| fold.start);
+        if self.cursor >= start {
+            self.cursor += offset;
+        }
+        self.lines.splice(at..at, other.lines);
     }
 }
 

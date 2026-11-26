@@ -5,7 +5,7 @@ use std::{
 };
 
 use cabaret_config::{Hints, Prefix};
-use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, TabCounts};
+use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, Route, TabCounts};
 use cabaret_transaction::{
     Branch, BranchOp, Metadata, Status, Store, TransactionContext, WorkspaceOp, pathspec_search,
 };
@@ -131,6 +131,18 @@ impl Cabaret {
         self.store.query(|ctx| ctx.branch(change_id)?.changed_files(&ctx.metadata(change_id)?.parents()?, pathspecs))
     }
 
+    /// The page `route` names, as this repository's identity sees it. A change's pages carry its
+    /// tabs under their heading, which names the change the tabs are of.
+    pub fn page(&self, route: &Route) -> Result<Page> {
+        let (change_id, view, mut page) = match route {
+            Route::Home { section } => return Page::home_section(&self.home(&self.identity()?)?, *section),
+            Route::Show { change } => (change, None, self.show_page(change)?),
+            Route::Files { view, change } => (change, Some(*view), self.files_page(change, *view, &[])?),
+        };
+        page.insert(1, self.change_tabs(change_id, view)?);
+        Ok(page)
+    }
+
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
         let hints = self.config::<Hints>()?.unwrap_or_default();
         self.store.query(|ctx| {
@@ -247,7 +259,7 @@ impl Cabaret {
     }
 
     /// The tabs over `change_id`'s pages, with `view`'s showing (`None` for its show page).
-    pub fn change_tabs_page(&self, change_id: &ChangeIdRef, view: Option<DiffView>) -> Result<Page> {
+    fn change_tabs(&self, change_id: &ChangeIdRef, view: Option<DiffView>) -> Result<Page> {
         let count = |view| -> Result<usize> { Ok(self.view_files(change_id, view, &[])?.len()) };
         let workspace = match self.workspace_holding(change_id)? {
             Some(_) => Some(count(DiffView::Workspace)?),
@@ -802,10 +814,6 @@ impl Cabaret {
     }
 
     pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home(viewer)?) }
-
-    pub fn home_section_page(&self, viewer: &Identity, section: HomeSection) -> Result<Page> {
-        Page::home_section(&self.home(viewer)?, section)
-    }
 
     pub fn first_home_section(&self, viewer: &Identity) -> Result<HomeSection> {
         Ok(self.home(viewer)?.first_section())

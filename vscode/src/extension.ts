@@ -11,8 +11,8 @@ import {
   type Tag,
   type Target,
   type DiffView,
-  type Fold,
   type HomeSection,
+  type Route,
   type WorkspaceId,
 } from "@cabaret/node";
 import * as vscode from "vscode";
@@ -61,20 +61,33 @@ function isHomeSection(text: string | undefined): text is HomeSection {
   return HOME_SECTIONS.some((section) => section === text);
 }
 
-type Route = { kind: "home"; section: HomeSection } | { kind: "show" | DiffView; change: ChangeId };
+/** What kind of page `route` opens, as its URI and the `cabaret.page` context name it. */
+function pageKind(route: Route): "home" | "show" | DiffView {
+  switch (route.kind) {
+    case "Home":
+      return "home";
+    case "Show":
+      return "show";
+    case "Files":
+      return route.view;
+  }
+}
 
 function routeUri(route: Route): vscode.Uri {
-  const path = `/${route.kind}/${route.kind === "home" ? route.section : route.change}`;
+  const path = `/${pageKind(route)}/${route.kind === "Home" ? route.section : route.change}`;
   return vscode.Uri.from({ scheme: SCHEME, path });
 }
 
 function parseRoute(uri: vscode.Uri): Route {
   const [, kind, rest] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
   if (kind === "home" && isHomeSection(rest)) {
-    return { kind, section: rest };
+    return { kind: "Home", section: rest };
   }
-  if ((kind === "show" || isDiffView(kind)) && rest !== undefined) {
-    return { kind, change: rest };
+  if (kind === "show" && rest !== undefined) {
+    return { kind: "Show", change: rest };
+  }
+  if (isDiffView(kind) && rest !== undefined) {
+    return { kind: "Files", view: kind, change: rest };
   }
   throw new Error(`unknown page ${uri.toString()}`);
 }
@@ -89,35 +102,6 @@ async function openFile({ path, line }: Location): Promise<void> {
   await vscode.window.showTextDocument(vscode.Uri.joinPath(workspaceFolder(), path), {
     selection: new vscode.Range(position, position),
   });
-}
-
-async function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
-  if (route.kind === "home") {
-    return cabaret.homeSectionPage(undefined, route.section);
-  }
-  const view = route.kind === "show" ? undefined : route.kind;
-  const [tabs, page] = await Promise.all([
-    cabaret.changeTabsPage(route.change, view),
-    view === undefined ? cabaret.showPage(route.change) : cabaret.filesPage(route.change, view),
-  ]);
-  // Under the heading, which names the change the tabs are of.
-  return inserted(page, 1, tabs);
-}
-
-/** `page` with `insert`'s lines put before its line `at`, and folds and cursor moved to match. */
-function inserted(page: Page, at: number, insert: Page): Page {
-  const shifted = (fold: Fold, by: number): Fold => ({ start: fold.start + by, end: fold.end + by });
-  if (page.folds.some((fold) => fold.start < at && at <= fold.end)) {
-    throw new Error(`line ${at} is inside a fold`);
-  }
-  return {
-    lines: page.lines.toSpliced(at, 0, ...insert.lines),
-    folds: [
-      ...page.folds.map((fold) => (fold.start < at ? fold : shifted(fold, insert.lines.length))),
-      ...insert.folds.map((fold) => shifted(fold, at)),
-    ].toSorted((a, b) => a.start - b.start),
-    cursor: page.cursor < at ? page.cursor : page.cursor + insert.lines.length,
-  };
 }
 
 function errorMessage(error: unknown): string {
@@ -324,7 +308,7 @@ class PageProvider
 
   /** Home at the section last shown, or before any was, the first with changes in it. */
   async home(cabaret: Cabaret): Promise<Route> {
-    return { kind: "home", section: this.homeSection ?? (await cabaret.firstHomeSection()) };
+    return { kind: "Home", section: this.homeSection ?? (await cabaret.firstHomeSection()) };
   }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -343,11 +327,11 @@ class PageProvider
   /** The page `uri` now shows in the repository. */
   private async render(uri: vscode.Uri): Promise<Page> {
     const route = parseRoute(uri);
-    if (route.kind === "home") {
+    if (route.kind === "Home") {
       this.homeSection = route.section;
     }
     this.watcher ??= vscode.Disposable.from(this.watchRepository(), fetchPeriodically());
-    return renderRoute(openCabaret(), route);
+    return openCabaret().page(route);
   }
 
   /**
@@ -717,11 +701,10 @@ function openPageUri(route: Route): vscode.Uri {
 function targetRoute(target: Target | undefined): Route | undefined {
   switch (target?.kind) {
     case "Change":
-      return { kind: "show", change: target.change };
+      return { kind: "Show", change: target.change };
     case "Files":
-      return { kind: target.view, change: target.change };
     case "Home":
-      return { kind: "home", section: target.section };
+      return target;
     default:
       return undefined;
   }
@@ -730,13 +713,11 @@ function targetRoute(target: Target | undefined): Route | undefined {
 async function follow(cabaret: Cabaret, provider: PageProvider, target: Target): Promise<void> {
   switch (target.kind) {
     case "Change":
-      await provider.open({ kind: "show", change: target.change });
+      await provider.open({ kind: "Show", change: target.change });
       break;
     case "Files":
-      await provider.open({ kind: target.view, change: target.change });
-      break;
     case "Home":
-      await provider.open({ kind: "home", section: target.section });
+      await provider.open(target);
       break;
     case "Diff":
       await openFileDiffs(cabaret, target.view, target.change, target.files);
@@ -775,7 +756,7 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
 /** The change a page is about: on the home page the one under the cursor, else the page's own. */
 function pageChange(provider: PageProvider, editor: vscode.TextEditor): ChangeId | undefined {
   const route = parseRoute(editor.document.uri);
-  if (route.kind !== "home") {
+  if (route.kind !== "Home") {
     return route.change;
   }
   const target = provider.targetUnderCursor(editor);
@@ -812,7 +793,7 @@ function focusedFileDiff(): FileDiff | undefined {
   return focused?.diff;
 }
 
-type PageKind = Route["kind"] | "file";
+type PageKind = ReturnType<typeof pageKind> | "file";
 
 /** The pages whose `!` keys act on their change; the workspace page's commit its files instead. */
 const ACTS_ON_CHANGE: PageKind[] = ["home", "show", "diff", "review"];
@@ -826,7 +807,7 @@ function updatePageContext(): void {
   const filesDiff = activeFilesDiff();
   const editor = activePage();
   const kind: PageKind | undefined =
-    filesDiff !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+    filesDiff !== undefined ? "file" : editor === undefined ? undefined : pageKind(parseRoute(editor.document.uri));
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
   vscode.commands.executeCommand("setContext", "cabaret.view", filesDiff?.view);
   const actsOnChange = kind !== undefined && ACTS_ON_CHANGE.includes(kind);
@@ -836,14 +817,12 @@ function updatePageContext(): void {
 /** The scope enclosing a page: a change's diffs sit in its show page, which sits in `home`. */
 async function enclosing(route: Route, home: () => Promise<Route>): Promise<Route | undefined> {
   switch (route.kind) {
-    case "home":
+    case "Home":
       return undefined;
-    case "show":
+    case "Show":
       return home();
-    case "diff":
-    case "review":
-    case "workspace":
-      return { kind: "show", change: route.change };
+    case "Files":
+      return { kind: "Show", change: route.change };
   }
 }
 
@@ -917,12 +896,14 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
         3000,
       );
     }
-    await (files.length === 0 ? provider.open({ kind: view, change }) : openFileDiffs(cabaret, view, change, files));
+    await (files.length === 0
+      ? provider.open({ kind: "Files", view, change })
+      : openFileDiffs(cabaret, view, change, files));
     return;
   }
   const change = await activeChange(cabaret, provider);
   if (change !== undefined) {
-    await provider.open({ kind: view, change });
+    await provider.open({ kind: "Files", view, change });
   }
 }
 
@@ -981,14 +962,14 @@ async function step(cabaret: Cabaret, provider: PageProvider, direction: Directi
     return;
   }
   const route = parseRoute(editor.document.uri);
-  if (route.kind !== "home") {
+  if (route.kind !== "Home") {
     await provider.open({ ...route, change: to });
     return;
   }
   const page = provider.page(editor.document.uri);
   const row = page === undefined ? undefined : rowOf(page, to);
   if (row === undefined) {
-    await provider.open({ kind: "show", change: to });
+    await provider.open({ kind: "Show", change: to });
     return;
   }
   const position = editor.document.validatePosition(new vscode.Position(row, editor.selection.active.character));
@@ -1181,17 +1162,19 @@ async function markFiles(
   );
   const unreviewed = new Set((await cabaret.viewFiles(change, "review")).map((file) => file.path));
   const next = files[index + 1] ?? files.find((file) => unreviewed.has(file.path));
-  await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
+  await (next === undefined
+    ? provider.open({ kind: "Files", view, change })
+    : openFileDiff(cabaret, view, change, next));
 }
 
 /** `! m` on a diff or review page: record the selected files as reviewed up to the change's tip. */
 async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vscode.TextEditor): Promise<void> {
   const route = parseRoute(editor.document.uri);
-  if (route.kind !== "diff" && route.kind !== "review") {
-    throw new Error(`the ${route.kind} page lists nothing to review`);
+  if (route.kind !== "Files" || route.view === "workspace") {
+    throw new Error(`the ${pageKind(route)} page lists nothing to review`);
   }
   const page = provider.page(editor.document.uri);
-  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.kind);
+  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.view);
   if (files.length === 0) {
     throw new Error("no file is selected");
   }
@@ -1204,15 +1187,15 @@ async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vs
 /** Enter over a selection on a view's page: the selected files side by side in a multi-file diff. */
 async function diffSelected(cabaret: Cabaret, provider: PageProvider, editor: vscode.TextEditor): Promise<void> {
   const route = parseRoute(editor.document.uri);
-  if (route.kind !== "diff" && route.kind !== "review" && route.kind !== "workspace") {
-    throw new Error(`the ${route.kind} page lists no files to diff`);
+  if (route.kind !== "Files") {
+    throw new Error(`the ${pageKind(route)} page lists no files to diff`);
   }
   const page = provider.page(editor.document.uri);
-  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.kind);
+  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.view);
   if (files.length === 0) {
     throw new Error("no file is selected");
   }
-  await openFileDiffs(cabaret, route.kind, route.change, files);
+  await openFileDiffs(cabaret, route.view, route.change, files);
 }
 
 /**
@@ -1223,7 +1206,7 @@ function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
   const editor = activePage();
   if (
     editor === undefined ||
-    parseRoute(editor.document.uri).kind !== "home" ||
+    parseRoute(editor.document.uri).kind !== "Home" ||
     editor.selections.every((selection) => selection.isEmpty)
   ) {
     return undefined;
@@ -1414,7 +1397,7 @@ async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome 
     return undefined;
   }
   const { change } = created;
-  return { report: `created ${change} with parent ${parent}`, show: { kind: "show", change } };
+  return { report: `created ${change} with parent ${parent}`, show: { kind: "Show", change } };
 }
 
 async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome | undefined> {
@@ -1423,7 +1406,7 @@ async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome 
     return undefined;
   }
   const parent = await cabaret.createParent(name, child);
-  return { report: `created ${parent} as parent of ${child}`, show: { kind: "show", change: parent } };
+  return { report: `created ${parent} as parent of ${child}`, show: { kind: "Show", change: parent } };
 }
 
 async function addOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
@@ -1808,10 +1791,12 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.home", async (cabaret) => {
       await provider.open(await provider.home(cabaret));
     }),
-    onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
+    onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "Show", change })),
     command("cabaret.diff", (cabaret) => switchView(cabaret, provider, "diff")),
     command("cabaret.review", (cabaret) => switchView(cabaret, provider, "review")),
-    onChange("cabaret.workspaceDiff", provider, (_, change) => provider.open({ kind: "workspace", change })),
+    onChange("cabaret.workspaceDiff", provider, (_, change) =>
+      provider.open({ kind: "Files", view: "workspace", change }),
+    ),
     onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
     onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),
     // Enter: follow whatever the cursor is on, or diff the files selected on a view's page all at
@@ -1836,7 +1821,7 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.stepOut", async (cabaret) => {
       const filesDiff = activeFilesDiff();
       if (filesDiff !== undefined) {
-        await provider.open({ kind: filesDiff.view, change: filesDiff.change });
+        await provider.open({ kind: "Files", view: filesDiff.view, change: filesDiff.change });
         return;
       }
       const editor = activePage();

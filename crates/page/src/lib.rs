@@ -4,4 +4,4 @@ mod page;
 
 pub use file_tree::FileTree;
 pub use home::{Home, HomeGraph, HomeNode, HomeSection};
-pub use page::{DiffView, Fold, Line, NextStep, Page, Segment, TabCounts, Tag, Target, name};
+pub use page::{DiffView, Fold, Line, NextStep, Page, Route, Segment, TabCounts, Tag, Target, name};

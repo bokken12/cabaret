@@ -9,7 +9,7 @@ use std::{
 };
 
 use cabaret_config::FetchInterval;
-use cabaret_page::{DiffView, HomeSection, Page};
+use cabaret_page::{DiffView, HomeSection, Page, Route};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     ViewDiff, WorkspaceId, safeguard::SafeguardKind,
@@ -167,38 +167,16 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.children(&change)).await
     }
 
+    /// The page `route` names, as git's user.email sees it.
     #[napi]
-    pub async fn show_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.show_page(&change)).await
+    pub async fn page(&self, route: Route) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.page(&route)).await
     }
 
     /// The files `change`'s `view` diffs; for review, those git's user.email has left to read.
     #[napi]
     pub async fn view_files(&self, change: ChangeId, view: DiffView) -> napi::Result<Vec<ChangedFile>> {
         self.blocking(move |cabaret| cabaret.view_files(&change, view, &[])).await
-    }
-
-    #[napi]
-    pub async fn files_page(&self, change: ChangeId, view: DiffView) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.files_page(&change, view, &[])).await
-    }
-
-    #[napi]
-    pub async fn change_tabs_page(&self, change: ChangeId, view: Option<DiffView>) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.change_tabs_page(&change, view)).await
-    }
-
-    /// `section` of the home page for `viewer`, defaulting to git's user.email.
-    #[napi]
-    pub async fn home_section_page(&self, viewer: Option<Identity>, section: HomeSection) -> napi::Result<Page> {
-        self.blocking(move |cabaret| {
-            let viewer = match viewer {
-                Some(viewer) => viewer,
-                None => cabaret.identity()?,
-            };
-            cabaret.home_section_page(&viewer, section)
-        })
-        .await
     }
 
     /// The first section of git's user.email's home page with changes in it.
