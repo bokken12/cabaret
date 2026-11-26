@@ -41,14 +41,14 @@ impl<'a> BranchOp<'a> {
     /// The branch before the transaction: as committed, or at `tip` for an insert. An insert
     /// refuses an id whose branch exists: gix's `MustNotExist` lets a ref be rewritten to the
     /// value it already has, which would pass creating a change twice off as a success.
-    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Branch<'ctx>> {
+    fn before<'txn>(&self, txn: &'txn TransactionContext<'txn>) -> Result<Branch<'txn>> {
         Ok(match self {
-            BranchOp::Update(id) => ctx.branch(id)?.clone(),
+            BranchOp::Update(id) => txn.branch(id)?.clone(),
             BranchOp::Insert { id, tip } => {
-                if ctx.repo.try_find_reference(&id.branch_ref())?.is_some() {
+                if txn.repo.try_find_reference(&id.branch_ref())?.is_some() {
                     Err(format!("{id} already exists"))?;
                 }
-                Branch::new(ctx, (*id).to_owned(), *tip)
+                Branch::new(txn, (*id).to_owned(), *tip)
             }
         })
     }
@@ -68,10 +68,10 @@ impl WorkspaceOp<'_> {
     }
 
     /// The workspace before the transaction: as committed, or not yet made for an insert.
-    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Workspace<'ctx>> {
+    fn before<'txn>(&self, txn: &'txn TransactionContext<'txn>) -> Result<Workspace<'txn>> {
         Ok(match self {
-            WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => ctx.workspace(*id)?.clone(),
-            WorkspaceOp::Insert { path, head } => Workspace::new(ctx, path, head.clone())?,
+            WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => txn.workspace(*id)?.clone(),
+            WorkspaceOp::Insert { path, head } => Workspace::new(txn, path, head.clone())?,
         })
     }
 }
@@ -98,10 +98,10 @@ fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<Re
 }
 
 /// The revision `head` was at as committed.
-fn committed_tip<'ctx>(ctx: &'ctx TransactionContext<'ctx>, head: &Head) -> Result<RevisionId> {
+fn committed_tip<'txn>(txn: &'txn TransactionContext<'txn>, head: &Head) -> Result<RevisionId> {
     match head {
         Head::Detached(revision) => Ok(*revision),
-        Head::Change(id) => Ok(ctx.branch(id)?.tip),
+        Head::Change(id) => Ok(txn.branch(id)?.tip),
     }
 }
 
@@ -177,7 +177,7 @@ impl Store {
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
     /// nothing it is handed (the context, its own mutable metadata and branches) can be returned:
-    /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
+    /// `T` cannot name `'txn`. Inside, `txn.metadata` and `txn.branch` are committed state and
     /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
     /// other changes through the context.
     pub fn transact_<T, F>(
@@ -189,11 +189,11 @@ impl Store {
         f: F,
     ) -> Result<T>
     where
-        F: for<'ctx> FnOnce(
-            &'ctx TransactionContext<'ctx>,
-            &mut [Metadata<'ctx>],
-            &mut [Branch<'ctx>],
-            &mut [Workspace<'ctx>],
+        F: for<'txn> FnOnce(
+            &'txn TransactionContext<'txn>,
+            &mut [Metadata<'txn>],
+            &mut [Branch<'txn>],
+            &mut [Workspace<'txn>],
         ) -> Result<T>,
     {
         // metadata, then branches, then workspaces, always, so two transactions cannot wait on
@@ -203,22 +203,22 @@ impl Store {
         let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
         locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
         // TODO(joel): retry on ref contention instead of surfacing it
-        let ctx = TransactionContext::new(self.repo.to_thread_local(), locks, allow);
+        let txn = TransactionContext::new(self.repo.to_thread_local(), locks, allow);
 
         // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
         // append creates the log.
         let mut metadata = Vec::new();
         for id in metadata_ids {
-            metadata.push(ctx.metadata(id)?.clone());
+            metadata.push(txn.metadata(id)?.clone());
         }
         let mut branches = Vec::new();
         for op in branch_ops {
-            branches.push(op.before(&ctx)?);
+            branches.push(op.before(&txn)?);
         }
         let mut workspaces = Vec::new();
         for op in workspace_ops {
-            workspaces.push(op.before(&ctx)?);
+            workspaces.push(op.before(&txn)?);
         }
 
         // TODO(joel): this seems like maybe the wrong semantics? maybe we should just automatically lock the branch?
@@ -232,18 +232,18 @@ impl Store {
             }
         }
 
-        let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
+        let out = f(&txn, &mut metadata, &mut branches, &mut workspaces)?;
 
-        ctx.confirm()?;
+        txn.confirm()?;
 
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
         for (id, metadata) in metadata_ids.iter().zip(&metadata) {
-            edits.extend(metadata.write_since(ctx.metadata(id)?)?);
+            edits.extend(metadata.write_since(txn.metadata(id)?)?);
         }
         let mut moved = Vec::new();
         for (op, branch) in branch_ops.iter().zip(&branches) {
-            let before = op.before(&ctx)?;
+            let before = op.before(&txn)?;
             let (expected, message) = match op {
                 BranchOp::Insert { .. } => (PreviousValue::MustNotExist, "cabaret: create"),
                 BranchOp::Update(_) if branch.tip != before.tip => {
@@ -264,11 +264,11 @@ impl Store {
         }
         for (branch, _) in &moved {
             if let Some(workspace) = branch.workspace()? {
-                Workspace::load(&ctx, workspace.to_ref())?.check_settled()?;
+                Workspace::load(&txn, workspace.to_ref())?.check_settled()?;
             }
         }
         if !edits.is_empty() {
-            ctx.repo.edit_references(edits)?;
+            txn.repo.edit_references(edits)?;
         }
         // Workspaces are written once the branches have moved: a failed transaction leaves them
         // behind rather than ahead of it.
@@ -276,9 +276,9 @@ impl Store {
             match op {
                 WorkspaceOp::Insert { .. } => workspace.create(checkout_tip(workspace, &branches)?)?,
                 WorkspaceOp::Update { id } => {
-                    let before = ctx.workspace(*id)?;
+                    let before = txn.workspace(*id)?;
                     if before.head != workspace.head {
-                        workspace.switch(committed_tip(&ctx, &before.head)?, checkout_tip(workspace, &branches)?)?;
+                        workspace.switch(committed_tip(&txn, &before.head)?, checkout_tip(workspace, &branches)?)?;
                     }
                 }
                 WorkspaceOp::Delete { .. } => workspace.delete()?,
@@ -286,7 +286,7 @@ impl Store {
         }
         for (branch, from) in moved {
             if let Some(workspace) = branch.workspace()? {
-                Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch)?;
+                Workspace::load(&txn, workspace.to_ref())?.fast_forward(from, branch)?;
             }
         }
         Ok(out)
@@ -302,11 +302,11 @@ impl Store {
         f: F,
     ) -> Result<T>
     where
-        F: for<'ctx> FnOnce(
-            &'ctx TransactionContext<'ctx>,
-            &mut [Metadata<'ctx>; L],
-            &mut [Branch<'ctx>; M],
-            &mut [Workspace<'ctx>; N],
+        F: for<'txn> FnOnce(
+            &'txn TransactionContext<'txn>,
+            &mut [Metadata<'txn>; L],
+            &mut [Branch<'txn>; M],
+            &mut [Workspace<'txn>; N],
         ) -> Result<T>,
     {
         self.transact_(
@@ -314,9 +314,9 @@ impl Store {
             metadata_ids.as_slice(),
             branch_ops.as_slice(),
             workspace_ops.as_slice(),
-            |ctx, metadata, branches, workspaces| {
+            |txn, metadata, branches, workspaces| {
                 f(
-                    ctx,
+                    txn,
                     metadata.try_into().expect("one metadata per id"),
                     branches.try_into().expect("one branch per id"),
                     workspaces.try_into().expect("one workspace per id"),
@@ -327,9 +327,9 @@ impl Store {
 
     pub fn query<T, F>(&self, f: F) -> Result<T>
     where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>) -> Result<T>,
+        F: for<'txn> FnOnce(&'txn TransactionContext<'txn>) -> Result<T>,
     {
-        self.transact(&BTreeSet::new(), &[], &[], &[], |ctx, [], [], []| f(ctx))
+        self.transact(&BTreeSet::new(), &[], &[], &[], |txn, [], [], []| f(txn))
     }
 
     // TODO(joel): think about this?
@@ -338,21 +338,21 @@ impl Store {
     /// so no in-flight metadata can express it.
     pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
         let allow = BTreeSet::new();
-        let ctx = TransactionContext::new(
+        let txn = TransactionContext::new(
             self.repo.to_thread_local(),
             self.lock(Resource::Metadata, [id].into_iter())?,
             &allow,
         );
-        if let Some(edit) = ctx.metadata(id)?.merge_origin()? {
-            ctx.repo.edit_reference(edit)?;
+        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
+            txn.repo.edit_reference(edit)?;
         }
         Ok(())
     }
 
     pub fn update_metadata<T, F>(&self, allow: &BTreeSet<SafeguardKind>, id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
+        F: for<'txn> FnOnce(&'txn TransactionContext<'txn>, &mut Metadata<'txn>) -> Result<T>,
     {
-        self.transact(allow, &[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
+        self.transact(allow, &[id], &[], &[], |txn, [metadata], [], []| f(txn, metadata))
     }
 }

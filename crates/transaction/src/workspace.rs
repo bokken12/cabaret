@@ -50,8 +50,8 @@ impl Head {
 /// A workspace as of one instant: where it is and what it has checked out. Its files are not
 /// state of their own: they follow `head`, and are only ever written through a transaction.
 #[derive(Clone)]
-pub struct Workspace<'ctx> {
-    ctx: &'ctx TransactionContext<'ctx>,
+pub struct Workspace<'txn> {
+    txn: &'txn TransactionContext<'txn>,
     id: WorkspaceId,
     path: PathBuf,
     pub head: Head,
@@ -75,20 +75,20 @@ pub enum Status {
     Modified,
 }
 
-impl<'ctx> Workspace<'ctx> {
+impl<'txn> Workspace<'txn> {
     /// A workspace that does not exist yet, to be made at `path` by [`Self::create`].
-    pub fn new(ctx: &'ctx TransactionContext<'ctx>, path: &Path, head: Head) -> Result<Self> {
-        Ok(Self { ctx, id: WorkspaceId::linked_at(path)?, path: path.to_owned(), head, drop_local_changes: false })
+    pub fn new(txn: &'txn TransactionContext<'txn>, path: &Path, head: Head) -> Result<Self> {
+        Ok(Self { txn, id: WorkspaceId::linked_at(path)?, path: path.to_owned(), head, drop_local_changes: false })
     }
 
-    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: WorkspaceIdRef<'_>) -> Result<Self> {
-        let repo = open(&ctx.repo, id)?;
+    pub fn load(txn: &'txn TransactionContext<'txn>, id: WorkspaceIdRef<'_>) -> Result<Self> {
+        let repo = open(&txn.repo, id)?;
         let head = match repo.head_name()? {
             Some(name) => Head::Change(name.shorten().to_str()?.parse()?),
             None => Head::Detached(RevisionId(repo.head_id()?.detach())),
         };
         let path = repo.workdir().ok_or_else(|| format!("workspace {id} has no working directory"))?.to_owned();
-        Ok(Self { ctx, id: id.into_owned(), path, head, drop_local_changes: false })
+        Ok(Self { txn, id: id.into_owned(), path, head, drop_local_changes: false })
     }
 
     pub fn id(&self) -> WorkspaceIdRef<'_> { self.id.to_ref() }
@@ -105,7 +105,7 @@ impl<'ctx> Workspace<'ctx> {
     pub fn path(&self) -> &Path { &self.path }
 
     /// The repository as seen from this workspace: its HEAD, index, and working directory.
-    fn repo(&self) -> Result<Repository> { open(&self.ctx.repo, self.id()) }
+    fn repo(&self) -> Result<Repository> { open(&self.txn.repo, self.id()) }
 
     /// Make the working directory and git's record of it, then fill it with `tip`'s files, as
     /// `git worktree add` does.
@@ -113,7 +113,7 @@ impl<'ctx> Workspace<'ctx> {
         let WorkspaceIdRef::Linked(id) = self.id() else { Err("the main workspace cannot be added")? };
         // Canonical, as a linked workspace reaches its common dir through `..` segments that
         // stop resolving once that workspace is removed.
-        let common_dir = fs::canonicalize(self.ctx.repo.common_dir())?;
+        let common_dir = fs::canonicalize(self.txn.repo.common_dir())?;
         let admin = common_dir.join("worktrees").join(gix::path::from_bstr(id)?);
         if admin.exists() {
             Err(format!("workspace {id} already exists"))?;
@@ -572,9 +572,9 @@ fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
 impl Branch<'_> {
     /// The workspace with this change checked out, if any.
     pub fn workspace(&self) -> Result<Option<WorkspaceId>> {
-        let ctx = self.ctx();
-        for workspace in ctx.workspaces()? {
-            if ctx.workspace(workspace.to_ref())?.change().is_some_and(|change| **change == *self.id()) {
+        let txn = self.txn();
+        for workspace in txn.workspaces()? {
+            if txn.workspace(workspace.to_ref())?.change().is_some_and(|change| **change == *self.id()) {
                 return Ok(Some(workspace));
             }
         }

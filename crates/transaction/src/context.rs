@@ -18,17 +18,17 @@ use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
 // TODO-someday(joel): impl !Send + !Sync for TransactionContext
-// TODO-someday(joel): rename `TransactionContext` -> `Transaction` and `ctx` -> `txn`?
+// TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
 // TODO(joel): each ref is read when first asked for, so another transaction's write to several
 // can be seen half applied; think about giving a transaction a single consistent view.
 /// One transaction's view of the repository, holding its resources' locks
-pub struct TransactionContext<'ctx> {
+pub struct TransactionContext<'txn> {
     pub repo: Repository,
-    metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
-    branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
-    workspaces: FrozenBTreeMap<WorkspaceId, Box<Workspace<'ctx>>>,
+    metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'txn>>>,
+    branches: FrozenBTreeMap<ChangeId, Box<Branch<'txn>>>,
+    workspaces: FrozenBTreeMap<WorkspaceId, Box<Workspace<'txn>>>,
     // TODO-someday(jm): remove `allowed_safeguards`?
-    allowed_safeguards: &'ctx BTreeSet<SafeguardKind>,
+    allowed_safeguards: &'txn BTreeSet<SafeguardKind>,
     violated_safeguards: FrozenVec<Box<Safeguard>>,
     _locks: Vec<Marker>,
 }
@@ -39,8 +39,8 @@ impl fmt::Debug for TransactionContext<'_> {
     }
 }
 
-impl<'ctx> TransactionContext<'ctx> {
-    pub fn new(repo: Repository, locks: Vec<Marker>, allowed_safeguards: &'ctx BTreeSet<SafeguardKind>) -> Self {
+impl<'txn> TransactionContext<'txn> {
+    pub fn new(repo: Repository, locks: Vec<Marker>, allowed_safeguards: &'txn BTreeSet<SafeguardKind>) -> Self {
         Self {
             repo,
             metadata: FrozenBTreeMap::new(),
@@ -59,7 +59,7 @@ impl<'ctx> TransactionContext<'ctx> {
         }
     }
 
-    pub fn check_owner(&'ctx self, change_id: &ChangeIdRef) -> Result<()> {
+    pub fn check_owner(&'txn self, change_id: &ChangeIdRef) -> Result<()> {
         let you = self.identity()?;
         let owners = &self.metadata(change_id)?.owners;
         if !owners.contains(&you) {
@@ -80,7 +80,7 @@ impl<'ctx> TransactionContext<'ctx> {
     pub fn allows(&self, safeguard: &SafeguardKind) -> bool { self.allowed_safeguards.contains(safeguard) }
 
     /// `change_id`'s metadata as committed when first asked for.
-    pub fn metadata(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Metadata<'ctx>> {
+    pub fn metadata(&'txn self, change_id: &ChangeIdRef) -> Result<&'txn Metadata<'txn>> {
         if let Some(metadata) = self.metadata.get(change_id) {
             return Ok(metadata);
         }
@@ -88,7 +88,7 @@ impl<'ctx> TransactionContext<'ctx> {
     }
 
     /// `change_id`'s branch as committed when first asked for.
-    pub fn branch(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Branch<'ctx>> {
+    pub fn branch(&'txn self, change_id: &ChangeIdRef) -> Result<&'txn Branch<'txn>> {
         if let Some(branch) = self.branches.get(change_id) {
             return Ok(branch);
         }
@@ -96,14 +96,14 @@ impl<'ctx> TransactionContext<'ctx> {
     }
 
     /// `workspace_id`'s workspace as committed when first asked for.
-    pub fn workspace(&'ctx self, workspace_id: WorkspaceIdRef<'_>) -> Result<&'ctx Workspace<'ctx>> {
+    pub fn workspace(&'txn self, workspace_id: WorkspaceIdRef<'_>) -> Result<&'txn Workspace<'txn>> {
         if let Some(workspace) = self.workspaces.get(&workspace_id.into_owned()) {
             return Ok(workspace);
         }
         Ok(self.workspaces.insert(workspace_id.into_owned(), Box::new(Workspace::load(self, workspace_id)?)))
     }
 
-    pub fn revision(&'ctx self, revision_id: RevisionId) -> Result<Revision<'ctx>> {
+    pub fn revision(&'txn self, revision_id: RevisionId) -> Result<Revision<'txn>> {
         Ok(Revision(self.repo.find_commit(revision_id)?))
     }
 
@@ -117,7 +117,7 @@ impl<'ctx> TransactionContext<'ctx> {
     }
 
     /// `change_id` and every change it lands through.
-    pub fn ancestors(&'ctx self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+    pub fn ancestors(&'txn self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
         let mut ancestors = BTreeSet::new();
         let mut frontier = vec![change_id.to_owned()];
         while let Some(id) = frontier.pop() {
@@ -177,7 +177,7 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(RevisionId(self.repo.write_object(&commit)?.detach()))
     }
 
-    pub fn current_change(&'ctx self) -> Result<ChangeId> {
+    pub fn current_change(&'txn self) -> Result<ChangeId> {
         Ok(self.workspace(self.current_workspace()?.to_ref())?.change().ok_or("HEAD is detached")?.clone())
     }
 
@@ -188,7 +188,7 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(Some(FileVersion { mode: entry.mode(), data: entry.object()?.try_into_blob()?.take_data().into() }))
     }
 
-    pub fn snapshot(&'ctx self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
+    pub fn snapshot(&'txn self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         let (metadata, branch) = (self.metadata(change_id)?, self.branch(change_id)?);
         let parents = metadata.parents()?;
         Ok(ChangeSnapshot {

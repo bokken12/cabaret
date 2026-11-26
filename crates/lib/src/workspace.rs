@@ -26,10 +26,10 @@ impl Cabaret {
 
     /// Every workspace and the change checked out in it, `None` where HEAD is detached.
     pub fn workspaces(&self) -> Result<BTreeMap<WorkspaceId, Option<ChangeId>>> {
-        self.store.query(|ctx| {
+        self.store.query(|txn| {
             let mut workspaces = BTreeMap::new();
-            for workspace in ctx.workspaces()? {
-                let change = ctx.workspace(workspace.to_ref())?.change().cloned();
+            for workspace in txn.workspaces()? {
+                let change = txn.workspace(workspace.to_ref())?.change().cloned();
                 workspaces.insert(workspace, change);
             }
             Ok(workspaces)
@@ -37,7 +37,7 @@ impl Cabaret {
     }
 
     pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> {
-        self.store.query(|ctx| ctx.branch(change_id)?.workspace())
+        self.store.query(|txn| txn.branch(change_id)?.workspace())
     }
 
     /// The workspace holding `change_id`, which the operations on a change's files need.
@@ -49,9 +49,9 @@ impl Cabaret {
     /// The workspace whose working directory is `path`.
     pub fn workspace_at(&self, path: &Path) -> Result<WorkspaceId> {
         let path = fs::canonicalize(path)?;
-        self.store.query(|ctx| {
-            for workspace in ctx.workspaces()? {
-                if fs::canonicalize(ctx.workspace(workspace.to_ref())?.path()).ok().as_deref() == Some(&path) {
+        self.store.query(|txn| {
+            for workspace in txn.workspaces()? {
+                if fs::canonicalize(txn.workspace(workspace.to_ref())?.path()).ok().as_deref() == Some(&path) {
                     return Ok(workspace);
                 }
             }
@@ -63,10 +63,10 @@ impl Cabaret {
     pub fn common_dir(&self) -> PathBuf { self.store.repo.to_thread_local().common_dir().to_owned() }
 
     /// The workspace this instance was opened in.
-    pub fn workspace_current(&self) -> Result<WorkspaceId> { self.store.query(|ctx| ctx.current_workspace()) }
+    pub fn workspace_current(&self) -> Result<WorkspaceId> { self.store.query(|txn| txn.current_workspace()) }
 
     pub fn workspace_path(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<PathBuf> {
-        self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.path().to_owned()))
+        self.store.query(|txn| Ok(txn.workspace(workspace_id)?.path().to_owned()))
     }
 
     /// Create a workspace holding `change_id` at `path`, or the default location, and return
@@ -81,7 +81,7 @@ impl Cabaret {
             &[],
             &[BranchOp::Update(change_id)],
             &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.to_owned()) }],
-            |_ctx, [], [_branch], [_workspace]| Ok(()),
+            |_txn, [], [_branch], [_workspace]| Ok(()),
         )?;
         Ok(path)
     }
@@ -120,7 +120,7 @@ impl Cabaret {
     pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
 
-        self.store.transact(allow, &[], &[], &delete, |ctx, [], [], [workspace]| {
+        self.store.transact(allow, &[], &[], &delete, |txn, [], [], [workspace]| {
             if workspace_id == WorkspaceIdRef::Main {
                 Err("the main workspace cannot be removed")?;
             }
@@ -128,20 +128,20 @@ impl Cabaret {
             match workspace.status()? {
                 Status::Clean => (),
                 Status::Untracked | Status::Modified => {
-                    ctx.check(Safeguard::Uncommitted { workspace: workspace.id().into_owned() });
+                    txn.check(Safeguard::Uncommitted { workspace: workspace.id().into_owned() });
                 }
             }
-            workspace.drop_local_changes = ctx.allows(&SafeguardKind::Uncommitted);
+            workspace.drop_local_changes = txn.allows(&SafeguardKind::Uncommitted);
             Ok(())
         })
     }
 
     pub fn workspace_prune(&self) -> Result<Prune> {
-        let archived = self.store.query(|ctx| {
+        let archived = self.store.query(|txn| {
             let mut archived = Vec::new();
-            for workspace in ctx.workspaces()? {
-                if let Some(change) = ctx.workspace(workspace.to_ref())?.change()
-                    && ctx.metadata(change)?.archived
+            for workspace in txn.workspaces()? {
+                if let Some(change) = txn.workspace(workspace.to_ref())?.change()
+                    && txn.metadata(change)?.archived
                 {
                     archived.push((workspace, change.clone()));
                 }
@@ -155,7 +155,7 @@ impl Cabaret {
                 &[&change],
                 &[BranchOp::Update(&change)],
                 &[WorkspaceOp::Delete { id: workspace.to_ref() }],
-                |_ctx, [metadata], [_branch], [_workspace]| match metadata.archived {
+                |_txn, [metadata], [_branch], [_workspace]| match metadata.archived {
                     true => Ok(()),
                     false => Err(format!("{change} is no longer archived").into()),
                 },
@@ -182,12 +182,12 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
         let update = [WorkspaceOp::Update { id: workspace_id }];
-        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &update, |ctx, [], [_to], [workspace]| {
+        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &update, |txn, [], [_to], [workspace]| {
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
             if workspace.status()? == Status::Modified {
-                ctx.check(Safeguard::Uncommitted { workspace: workspace_id.into_owned() });
+                txn.check(Safeguard::Uncommitted { workspace: workspace_id.into_owned() });
             }
-            workspace.drop_local_changes = ctx.allows(&SafeguardKind::Uncommitted);
+            workspace.drop_local_changes = txn.allows(&SafeguardKind::Uncommitted);
             workspace.head = Head::Change(change_id.to_owned());
             Ok(())
         })
@@ -196,8 +196,8 @@ impl Cabaret {
     /// Whether a workspace sits at the default location for the change it holds, which names it
     /// as that change's own rather than one to switch between changes.
     pub fn workspace_is_dedicated(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<bool> {
-        let (path, held) = self.store.query(|ctx| {
-            let workspace = ctx.workspace(workspace_id)?;
+        let (path, held) = self.store.query(|txn| {
+            let workspace = txn.workspace(workspace_id)?;
             Ok((workspace.path().to_owned(), workspace.change().cloned()))
         })?;
         let Some(held) = held else { return Ok(false) };

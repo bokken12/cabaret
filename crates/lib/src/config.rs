@@ -5,7 +5,7 @@ use crate::cabaret::Cabaret;
 
 impl Cabaret {
     // TODO(joel): delete?
-    pub fn identity(&self) -> Result<Identity> { self.store.query(|ctx| ctx.identity()) }
+    pub fn identity(&self) -> Result<Identity> { self.store.query(|txn| txn.identity()) }
 
     /// `S` as git config reads it here, from whichever scope sets it.
     pub fn config<S: Setting>(&self) -> Result<Option<S>> { cabaret_config::get(&self.store.repo.to_thread_local()) }

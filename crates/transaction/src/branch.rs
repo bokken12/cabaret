@@ -15,22 +15,22 @@ use nonempty_collections::NEBTreeSet;
 use crate::{context::TransactionContext, tree};
 
 #[derive(Clone, Debug)]
-pub struct Branch<'ctx> {
-    ctx: &'ctx TransactionContext<'ctx>,
+pub struct Branch<'txn> {
+    txn: &'txn TransactionContext<'txn>,
     id: ChangeId,
     /// The revision the branch points at.
     pub tip: RevisionId,
 }
 
-impl<'ctx> Branch<'ctx> {
-    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, tip: RevisionId) -> Self { Self { ctx, id, tip } }
+impl<'txn> Branch<'txn> {
+    pub fn new(txn: &'txn TransactionContext<'txn>, id: ChangeId, tip: RevisionId) -> Self { Self { txn, id, tip } }
 
-    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
-        let tip = RevisionId(ctx.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
-        Ok(Self::new(ctx, id.to_owned(), tip))
+    pub fn load(txn: &'txn TransactionContext<'txn>, id: &ChangeIdRef) -> Result<Self> {
+        let tip = RevisionId(txn.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
+        Ok(Self::new(txn, id.to_owned(), tip))
     }
 
-    pub fn ctx(&self) -> &'ctx TransactionContext<'ctx> { self.ctx }
+    pub fn txn(&self) -> &'txn TransactionContext<'txn> { self.txn }
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
@@ -38,9 +38,9 @@ impl<'ctx> Branch<'ctx> {
     /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
     /// keeping only the maximal ones. A root is its own base, so presents no diff.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<NEBTreeSet<RevisionId>> {
-        let ctx = self.ctx;
+        let txn = self.txn;
         let merge_base = |parent: &ChangeId| {
-            ctx.merge_base(self.tip, ctx.branch(parent)?.tip)?
+            txn.merge_base(self.tip, txn.branch(parent)?.tip)?
                 .ok_or_else(|| Error::from(format!("{} shares no history with {parent}", self.id)))
         };
         let mut parents = parents.iter();
@@ -49,7 +49,7 @@ impl<'ctx> Branch<'ctx> {
         for parent in parents {
             candidates.insert(merge_base(parent)?);
         }
-        ctx.maximal_revisions(&candidates)
+        txn.maximal_revisions(&candidates)
     }
 
     /// The revision this branch's diff is computed against.
@@ -67,8 +67,8 @@ impl<'ctx> Branch<'ctx> {
     /// Several revisions merge into a virtual one, as git's recursive merge does; it lives only
     /// in the object database and is the same commit for the same revisions.
     fn merged(&self, revisions: &NEBTreeSet<RevisionId>) -> Result<RevisionId> {
-        let revisions = self.ctx.maximal_revisions(revisions)?;
-        let repo = &self.ctx.repo;
+        let revisions = self.txn.maximal_revisions(revisions)?;
+        let repo = &self.txn.repo;
         let merged =
             repo.virtual_merge_base(revisions.iter().map(|revision| revision.0), repo.tree_merge_options()?)?;
         Ok(RevisionId(merged.commit_id.detach()))
@@ -114,18 +114,18 @@ impl<'ctx> Branch<'ctx> {
         if parents.is_empty() {
             return Ok(BTreeSet::new());
         }
-        let ctx = self.ctx;
+        let txn = self.txn;
         let mut parent_tips = Vec::new();
         for parent in parents {
-            parent_tips.push(ctx.branch(parent)?.tip.0);
+            parent_tips.push(txn.branch(parent)?.tip.0);
         }
         let mut written = BTreeSet::new();
-        for info in ctx.repo.rev_walk([self.tip.0]).with_hidden(parent_tips).all()? {
+        for info in txn.repo.rev_walk([self.tip.0]).with_hidden(parent_tips).all()? {
             written.extend(self.written_files(RevisionId(info?.id))?);
         }
 
         let marker = format!("{} ", "<".repeat(Conflict::DEFAULT_MARKER_SIZE.into()));
-        let tip = ctx.repo.find_commit(self.tip.0)?.tree()?;
+        let tip = txn.repo.find_commit(self.tip.0)?.tree()?;
         let mut conflicted = BTreeSet::new();
         for path in written {
             // A deleted file holds nothing.
@@ -140,7 +140,7 @@ impl<'ctx> Branch<'ctx> {
     /// The files `revision` itself writes: those differing from every one of its parents, so a
     /// merge counts only the files it did not take whole from one side, where its conflicts are.
     fn written_files(&self, revision: RevisionId) -> Result<BTreeSet<RepoPath>> {
-        let repo = &self.ctx.repo;
+        let repo = &self.txn.repo;
         let commit = repo.find_commit(revision.0)?;
         let tree = commit.tree()?;
         let changed_since = |from: Option<&gix::Tree<'_>>| -> Result<BTreeSet<RepoPath>> {
@@ -157,7 +157,7 @@ impl<'ctx> Branch<'ctx> {
     }
 
     fn changed_files_from(&self, base: RevisionId, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
-        let repo = &self.ctx.repo;
+        let repo = &self.txn.repo;
         let base = repo.find_commit(base.0)?.tree()?;
         let tip = repo.find_commit(self.tip.0)?.tree()?;
         tree::changed_files(repo, Some(&base), &tip, pathspecs)
@@ -174,19 +174,19 @@ impl<'ctx> Branch<'ctx> {
     /// Merge `other` into this branch as part of `operation`, which names the commit: `None`
     /// when it already contains `other`, else the files left conflicted. A branch with nothing
     /// of its own fast-forwards instead.
-    pub fn merge(&mut self, other: &Branch<'ctx>, operation: &str) -> Result<Option<BTreeSet<RepoPath>>> {
-        let ctx = self.ctx;
-        if ctx.is_predecessor(other.tip, self.tip)? {
+    pub fn merge(&mut self, other: &Branch<'txn>, operation: &str) -> Result<Option<BTreeSet<RepoPath>>> {
+        let txn = self.txn;
+        if txn.is_predecessor(other.tip, self.tip)? {
             return Ok(None);
         }
-        if ctx.is_predecessor(self.tip, other.tip)? {
+        if txn.is_predecessor(self.tip, other.tip)? {
             self.tip = other.tip;
             return Ok(Some(BTreeSet::new()));
         }
 
         // Labels are forced rather than read from config so the committed conflict text is
         // identical no matter whose clone performs the merge.
-        let repo = &ctx.repo;
+        let repo = &txn.repo;
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(self.id.as_bstr()), other: Some(other.id.as_bstr()) };
         let mut merge = repo.merge_commits(self.tip, other.tip, labels, tree::merge_options(repo)?.into())?;
@@ -201,7 +201,7 @@ impl<'ctx> Branch<'ctx> {
             .collect::<Result<_>>()?;
 
         let message = format!("{operation}: merge {} into {}", other.id, self.id);
-        self.tip = ctx.commit(tree, vec![self.tip, other.tip], message)?;
+        self.tip = txn.commit(tree, vec![self.tip, other.tip], message)?;
         Ok(Some(conflicts))
     }
 }

@@ -48,12 +48,12 @@ impl Cabaret {
                 synced.insert(branch.to_str()?.parse::<ChangeId>()?);
             }
         }
-        self.store.query(|ctx| {
-            for reference in ctx.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
+        self.store.query(|txn| {
+            for reference in txn.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
                 let name = reference?.name().as_bstr().to_str()?.to_owned();
                 let change_id: ChangeId =
                     name.strip_prefix(ChangeIdRef::LOG_REF_PREFIX).expect("listed by this prefix").parse()?;
-                if !ctx.metadata(&change_id)?.archived {
+                if !txn.metadata(&change_id)?.archived {
                     synced.insert(change_id);
                 }
             }
@@ -97,20 +97,20 @@ impl Cabaret {
         if !local {
             // TODO-someday(joel): check out the files in a workspace whose unborn HEAD names this branch
             let insert = BranchOp::Insert { id: change_id, tip: origin };
-            self.store.transact(&BTreeSet::new(), &[], &[insert], &[], |_ctx, [], [_branch], []| Ok(()))?;
+            self.store.transact(&BTreeSet::new(), &[], &[insert], &[], |_txn, [], [_branch], []| Ok(()))?;
             return Ok(false);
         }
-        self.store.transact(&BTreeSet::new(), &[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
-            if ctx.is_predecessor(origin, branch.tip)? {
+        self.store.transact(&BTreeSet::new(), &[], &[BranchOp::Update(change_id)], &[], |txn, [], [branch], []| {
+            if txn.is_predecessor(origin, branch.tip)? {
                 return Ok(branch.tip != origin);
             }
-            if !ctx.is_predecessor(branch.tip, origin)? {
+            if !txn.is_predecessor(branch.tip, origin)? {
                 Err("diverged from origin")?;
             }
             let from = branch.tip;
             branch.tip = origin;
             if let Some(workspace) = branch.workspace()?
-                && ctx.workspace(workspace.to_ref())?.fast_forward_conflicts(from, branch)?
+                && txn.workspace(workspace.to_ref())?.fast_forward_conflicts(from, branch)?
             {
                 Err(format!("local changes in workspace {workspace} conflict with origin's"))?;
             }

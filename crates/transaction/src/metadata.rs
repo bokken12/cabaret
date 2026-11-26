@@ -130,8 +130,8 @@ fn description(repo: &Repository, id: ObjectId) -> Result<String> {
 
 /// A change's metadata as of one instant: everything about it except where its branch points.
 #[derive(Clone, Debug)]
-pub struct Metadata<'ctx> {
-    ctx: &'ctx TransactionContext<'ctx>,
+pub struct Metadata<'txn> {
+    txn: &'txn TransactionContext<'txn>,
     id: ChangeId,
     commit: Option<ObjectId>,
     pub title: Option<String>,
@@ -146,11 +146,11 @@ pub struct Metadata<'ctx> {
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
 }
 
-impl<'ctx> Metadata<'ctx> {
+impl<'txn> Metadata<'txn> {
     /// Empty metadata, as read from `commit` before anything in it is applied.
-    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, commit: Option<ObjectId>) -> Self {
+    pub fn new(txn: &'txn TransactionContext<'txn>, id: ChangeId, commit: Option<ObjectId>) -> Self {
         Self {
-            ctx,
+            txn,
             id,
             commit,
             title: None,
@@ -165,7 +165,7 @@ impl<'ctx> Metadata<'ctx> {
         }
     }
 
-    pub fn ctx(&self) -> &'ctx TransactionContext<'ctx> { self.ctx }
+    pub fn txn(&self) -> &'txn TransactionContext<'txn> { self.txn }
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
@@ -181,11 +181,11 @@ impl<'ctx> Metadata<'ctx> {
         }
         self.parents
             .iter()
-            .try_fold(false, |acc, parent| Ok(acc || self.ctx.metadata(parent)?.is_descendant(ancestor)?))
+            .try_fold(false, |acc, parent| Ok(acc || self.txn.metadata(parent)?.is_descendant(ancestor)?))
     }
 
     pub fn is_ancestor(&self, descendant: &ChangeIdRef) -> Result<bool> {
-        self.ctx.metadata(descendant)?.is_descendant(&self.id)
+        self.txn.metadata(descendant)?.is_descendant(&self.id)
     }
 
     /// The changes this one actually targets: declared parents, with archived ones replaced by
@@ -199,7 +199,7 @@ impl<'ctx> Metadata<'ctx> {
         let mut candidates = BTreeSet::new();
         let mut frontier: Vec<_> = self.parents.iter().cloned().collect();
         while let Some(candidate_id) = frontier.pop() {
-            let candidate = self.ctx.metadata(&candidate_id)?;
+            let candidate = self.txn.metadata(&candidate_id)?;
             // skip archived parents and land into their parents
             if candidate.archived {
                 frontier.extend(candidate.parents.iter().cloned());
@@ -207,18 +207,18 @@ impl<'ctx> Metadata<'ctx> {
                 candidates.insert(candidate_id);
             }
         }
-        self.ctx.maximal_changes(&candidates)
+        self.txn.maximal_changes(&candidates)
     }
 
     /// Fold `id`'s log and read its description.
-    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
-        let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
-            return Ok(Metadata::new(ctx, id.to_owned(), None));
+    pub fn load(txn: &'txn TransactionContext<'txn>, id: &ChangeIdRef) -> Result<Self> {
+        let Some(reference) = txn.repo.try_find_reference(&id.log_ref())? else {
+            return Ok(Metadata::new(txn, id.to_owned(), None));
         };
         let commit = reference.into_fully_peeled_id()?.detach();
-        let tree = ctx.repo.find_commit(commit)?.tree()?;
-        let mut metadata = Metadata::new(ctx, id.to_owned(), Some(commit));
-        for action in actions(&ctx.repo, commit)? {
+        let tree = txn.repo.find_commit(commit)?.tree()?;
+        let mut metadata = Metadata::new(txn, id.to_owned(), Some(commit));
+        for action in actions(&txn.repo, commit)? {
             metadata.apply(&action);
         }
         metadata.description = file(&tree, DESCRIPTION_FILE)?.filter(|text| !text.is_empty());
@@ -317,9 +317,9 @@ impl<'ctx> Metadata<'ctx> {
             return Ok(None);
         }
 
-        let ctx = self.ctx();
+        let txn = self.txn();
         let text = log::render(&actions)?;
-        let tree = write_tree(&ctx.repo, &text, self.description.as_deref().unwrap_or(""))?;
+        let tree = write_tree(&txn.repo, &text, self.description.as_deref().unwrap_or(""))?;
 
         let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::revision).collect();
         let parents = self.commit.map(RevisionId).into_iter().chain(referenced).collect();
@@ -327,7 +327,7 @@ impl<'ctx> Metadata<'ctx> {
         if described {
             message.push_str("edit description\n");
         }
-        let commit = ctx.commit(tree, parents, message)?;
+        let commit = txn.commit(tree, parents, message)?;
         Ok(Some(self.edit(commit.0, "cabaret: metadata")))
     }
 
@@ -336,7 +336,7 @@ impl<'ctx> Metadata<'ctx> {
     /// merge of the two. The edit expects the commit this was read from, so a concurrent write
     /// fails rather than being overwritten.
     pub fn merge_origin(&self) -> Result<Option<RefEdit>> {
-        let repo = &self.ctx.repo;
+        let repo = &self.txn.repo;
         let other = repo.find_reference(&self.id().origin_log_ref())?.peel_to_id()?.detach();
         let Some(local) = self.commit else { return Ok(Some(self.edit(other, "cabaret: fetch"))) };
         let ours = commits(repo, local)?;
@@ -362,8 +362,8 @@ impl<'ctx> Metadata<'ctx> {
         other: ObjectId,
         theirs: &BTreeMap<ObjectId, LogCommit>,
     ) -> Result<ObjectId> {
-        let ctx = self.ctx;
-        let repo = &ctx.repo;
+        let txn = self.txn;
+        let repo = &txn.repo;
         // Both have seen everything before a commit both have seen, so the latest are those no
         // other common commit was written on.
         let common: BTreeMap<_, _> = ours.iter().filter(|(id, _)| theirs.contains_key(*id)).collect();
@@ -405,7 +405,7 @@ impl<'ctx> Metadata<'ctx> {
         );
 
         let tree = write_tree(repo, "", &String::from_utf8(merged)?)?;
-        Ok(ctx.commit(tree, vec![RevisionId(local), RevisionId(other)], "merge\n")?.0)
+        Ok(txn.commit(tree, vec![RevisionId(local), RevisionId(other)], "merge\n")?.0)
     }
 
     /// The edit moving this change's log ref from the commit this was read from to `new`.
@@ -425,9 +425,9 @@ impl<'ctx> Metadata<'ctx> {
     }
 }
 
-impl<'ctx> TransactionContext<'ctx> {
+impl<'txn> TransactionContext<'txn> {
     /// `changes` without any that is an ancestor of another of them.
-    pub fn maximal_changes(&'ctx self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
+    pub fn maximal_changes(&'txn self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
         let mut candidates = changes.clone();
 
         for candidate_id in changes {
