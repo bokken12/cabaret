@@ -12,8 +12,8 @@ pub enum LineCounts {
 impl LineCounts {
     /// Between the sides a file is on: a missing side counts as empty.
     pub fn new(before: Option<&FileVersion>, after: Option<&FileVersion>) -> Self {
-        let old = before.map(|version| version.data.as_slice()).unwrap_or_default();
-        let new = after.map(|version| version.data.as_slice()).unwrap_or_default();
+        let old = before.map_or_default(|version| version.data.as_slice());
+        let new = after.map_or_default(|version| version.data.as_slice());
         if is_binary(old) || is_binary(new) {
             return Self::Binary;
         }

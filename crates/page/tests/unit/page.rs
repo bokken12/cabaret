@@ -314,7 +314,7 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
         ○ tests/parser/basic.rs
     "#]]
     .assert_eq(&single.to_string());
-    assert!(single.folds.is_empty());
+    assert_eq!(single.folds, Vec::new());
 }
 
 #[test]

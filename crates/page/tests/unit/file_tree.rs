@@ -14,7 +14,7 @@ fn empty_and_single_file_trees_need_no_folds() {
     assert_eq!(empty, Page::default());
     let single = render(&["src/parser/tokens.rs"]);
     expect![["○ src/parser/tokens.rs\n"]].assert_eq(&super::with_folds(&single, &single.to_string()));
-    assert!(single.folds.is_empty());
+    assert_eq!(single.folds, Vec::new());
 }
 
 #[test]

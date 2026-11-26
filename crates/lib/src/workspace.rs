@@ -128,9 +128,9 @@ impl Cabaret {
             match workspace.status()? {
                 Status::Clean => (),
                 Status::Untracked | Status::Modified => {
-                    ctx.check(Safeguard::Uncommitted { workspace: workspace.id().into_owned() })
+                    ctx.check(Safeguard::Uncommitted { workspace: workspace.id().into_owned() });
                 }
-            };
+            }
             workspace.drop_local_changes = ctx.allows(&SafeguardKind::Uncommitted);
             Ok(())
         })

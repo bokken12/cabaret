@@ -25,5 +25,3 @@ In general, the question of metadata without branches seems unimportant, but the
 The last of these options feels somewhat bad, while the former two feel pretty similar in outcome: since in either case other people's changes would not really start showing up in your home page or similar until they were ready for review.
 
 Overall I lean towards 1 as cleaner, with the assumption that changes from other users will be fairly bare until they sync from forge metadata. In particular, they will lack parents, which prevents any review from being performed on them, but this makes sense pre-PR.
-
-

@@ -71,8 +71,8 @@ impl<'ctx> TransactionContext<'ctx> {
     pub fn confirm(&self) -> Result<()> {
         let refused = self.violated_safeguards.iter().cloned().collect();
         if let Some(refused) = NEVec::try_from_vec(refused) {
-            Err(Error::Refused(refused))?
-        };
+            Err(Error::Refused(refused))?;
+        }
         Ok(())
     }
 

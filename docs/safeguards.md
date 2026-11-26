@@ -7,19 +7,19 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
 ## Land
 
 - **Multiple parents**
-    - would end up merging all parents into each other
+  - would end up merging all parents into each other
 - Not owner
-    - Many users performing distributed merges leads to complex commit graphs and conflicts
+  - Many users performing distributed merges leads to complex commit graphs and conflicts
 - Empty change
-    - pure noise without updating the parent
+  - pure noise without updating the parent
 - Workspace has uncommitted edits
-    - those edits would be stranded or may have been intended to be included
+  - those edits would be stranded or may have been intended to be included
 - Review obligations not met
-    - self-explanatory
+  - self-explanatory
 - Parent review obligations not met
-    - requires re-review of the child diff on the parent
+  - requires re-review of the child diff on the parent
 - Conflicted
-    - causes the parent to become conflicted
+  - causes the parent to become conflicted
 - Outstanding TODOs?
 - Parent conflicted?
 - Archived?
@@ -28,49 +28,49 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
 ## Rebase
 
 - Not owner
-    - Many users performing distributed merges leads to complex commit graphs and conflicts
+  - Many users performing distributed merges leads to complex commit graphs and conflicts
 - Conflicted
-    - May cause more complex nested conflicts
+  - May cause more complex nested conflicts
 - Parent conflicted
-    - Causes the child to become conflicted
+  - Causes the child to become conflicted
 - Archived?
 - Parent archived?
 
 ## Owners
 
 - Remove non-self
-    - May cause other user to lose track of a change
+  - May cause other user to lose track of a change
 - Change left with no owners
-    - May cause change to become orphaned
+  - May cause change to become orphaned
 - Edit archived?
 - Unknown identity?
 
 ## Parents
 
 - **Ancestry cycle**
-    - Change graph becomes invalid
+  - Change graph becomes invalid
 - Remove parent which causes the base to be changed
-    - May cause that parent's diff to be included in the child
+  - May cause that parent's diff to be included in the child
 - Change left with no parents
-    - Has nowhere to release into
+  - Has nowhere to release into
 - Change left without a greatest common ancestor
-    - May prevent change from ever reaching a single parent
+  - May prevent change from ever reaching a single parent
 - Add archived parent to unarchived child
-    - Will be automaticaly skipped by parent inference
+  - Will be automaticaly skipped by parent inference
 - Add ancestor of existing parent
-    - Will be automatically skipped by parent inference
+  - Will be automatically skipped by parent inference
 - Edit archived?
 
 ## Workspace
 
 - Remove or switch with uncommitted changes
-    - Those changes are lost permanently
+  - Those changes are lost permanently
 - Add archived?
 
 ## Commit
 
 - Adds conflict markers
-    - Change becomes conflicted
+  - Change becomes conflicted
 - Commit to archived?
 
 ## Permanence
@@ -83,6 +83,6 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
 
 - Archive change with unarchived children
 - Unarchive change with archived parents
-    - Ends up including parent work
+  - Ends up including parent work
 - Archive permanent feature
-    - Intended to be permanent?
+  - Intended to be permanent?
