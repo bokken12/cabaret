@@ -45,7 +45,12 @@ impl From<gix::ThreadSafeRepository> for Cabaret {
     fn from(repo: gix::ThreadSafeRepository) -> Self { Self { store: repo.into() } }
 }
 
-// TODO-someday(joel): split implementation into files by topic
+// TODO-someday(joel): it's a bit awkward to me how this file often mixes together metadata-level and file-level
+// operations among others, I might want to either
+// 1. Add a layer of abstraction on top of gix so that git operations are concisely described next to metadata edits
+//    without either getting complexity?
+// 2. Split up where these different pieces of logic live by file and/or impl block?
+// 3. Other cleaning that allows this file to be more readable/skimmable?
 impl Cabaret {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { store: Store::open(dir)? }) }
 
@@ -186,6 +191,7 @@ impl Cabaret {
         }
     }
 
+    // TODO-someday(joel): I don't really liek page logic living here?
     pub fn files_page(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<Page> {
         let diff = self.view_diff(change_id, view, pathspecs)?;
         let counted = diff.files.len() <= COUNTED_FILES;
