@@ -114,9 +114,7 @@ impl Cabaret {
         Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
     }
 
-    /// Remove `workspace_id`; allowing uncommitted changes deletes them with it. Removing a
-    /// workspace needs the branch it holds, which is only known once read; the transaction
-    /// re-checks it under the lock.
+    /// Remove `workspace_id`; allowing uncommitted changes deletes them with it.
     pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
 
@@ -153,11 +151,17 @@ impl Cabaret {
             let removed = self.store.transact(
                 &BTreeSet::new(),
                 &[&change],
-                &[BranchOp::Update(&change)],
+                &[],
                 &[WorkspaceOp::Delete { id: workspace.to_ref() }],
-                |_txn, [metadata], [_branch], [_workspace]| match metadata.archived {
-                    true => Ok(()),
-                    false => Err(format!("{change} is no longer archived").into()),
+                |_txn, [metadata], [], [workspace]| {
+                    // The workspace was found before its lock was taken, so it may have switched since.
+                    if workspace.change() != Some(&change) {
+                        Err(format!("{change} is no longer checked out in workspace {}", workspace.id()))?;
+                    }
+                    if !metadata.archived {
+                        Err(format!("{change} is no longer archived"))?;
+                    }
+                    Ok(())
                 },
             );
             match removed {
@@ -173,8 +177,7 @@ impl Cabaret {
     }
 
     /// Check out `change_id` in `workspace_id`; allowing uncommitted changes drops those to
-    /// tracked files, leaving untracked ones be. Switching needs the branch the workspace leaves,
-    /// which is only known once read; the transaction re-checks it under the lock.
+    /// tracked files, leaving untracked ones be.
     pub fn workspace_switch(
         &self,
         workspace_id: WorkspaceIdRef<'_>,
