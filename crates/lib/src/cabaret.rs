@@ -237,6 +237,7 @@ impl Cabaret {
                 }
                 DiffView::Review => {
                     let review = metadata.reviewed(&txn.identity()?);
+<<<<<<< metadata-reviewed
                     let mut bases = BTreeMap::new();
                     let mut files = Vec::new();
                     for file in branch.review_files(parents, review, pathspecs)? {
@@ -248,6 +249,21 @@ impl Cabaret {
                         files.push(FileDiff::new(file, base, tip));
                     }
                     files
+||||||| base
+                    let mut bases = BTreeMap::new();
+                    let mut files = Vec::new();
+                    for file in branch.review_files(parents, &review, pathspecs)? {
+                        let reviewed = review.get(file.path()).copied();
+                        let base = match bases.get(&reviewed) {
+                            Some(&base) => base,
+                            None => *bases.entry(reviewed).or_insert(branch.review_base(parents, reviewed)?),
+                        };
+                        files.push(FileDiff::new(file, base, tip));
+                    }
+                    files
+=======
+                    branch.review_diffs(parents, &review, pathspecs)?
+>>>>>>> main
                 }
                 DiffView::Workspace => {
                     let workspace = txn.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;

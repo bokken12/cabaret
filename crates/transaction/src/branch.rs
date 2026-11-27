@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Error, Pathspec, RepoPath, Result, RevisionId, TreeId};
+use cabaret_types::{
+    ChangeId, ChangeIdRef, ChangedFile, Error, FileDiff, Pathspec, RepoPath, Result, RevisionId, TreeId,
+};
 use gix::{
     bstr::ByteSlice,
     merge::{
@@ -55,15 +57,6 @@ impl<'txn> Branch<'txn> {
     /// The revision this branch's diff is computed against.
     pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<RevisionId> { self.merged(&self.bases(parents)?) }
 
-    /// The revision a reviewer's diff of one file is computed against: the bases merged with
-    /// `reviewed`, the tip they last marked the file reviewed at, so only what has changed since
-    /// remains to read. The plain base for a file they never marked.
-    pub fn review_base(&self, parents: &BTreeSet<ChangeId>, reviewed: Option<RevisionId>) -> Result<RevisionId> {
-        let mut revisions = self.bases(parents)?;
-        revisions.extend(reviewed);
-        self.merged(&revisions)
-    }
-
     /// Several revisions merge into a virtual one, as git's recursive merge does; it lives only
     /// in the object database and is the same commit for the same revisions.
     fn merged(&self, revisions: &NEBTreeSet<RevisionId>) -> Result<RevisionId> {
@@ -80,15 +73,27 @@ impl<'txn> Branch<'txn> {
         self.changed_files_from(self.base(parents)?, pathspecs)
     }
 
-    /// The file-level changes a reviewer has left to read against `parents`: each file as its
-    /// tip differs from the file's review base (see [`Self::review_base`]), given `review`, the
-    /// tip they last marked each file reviewed at. Files are keyed by where they end up.
+    /// The file-level changes a reviewer has left to read against `parents`; see
+    /// [`Self::review_diffs`].
     pub fn review_files(
         &self,
         parents: &BTreeSet<ChangeId>,
         review: &BTreeMap<RepoPath, RevisionId>,
         pathspecs: &[Pathspec],
     ) -> Result<Vec<ChangedFile>> {
+        Ok(self.review_diffs(parents, review, pathspecs)?.into_iter().map(|diff| diff.file).collect())
+    }
+
+    /// The file-level changes a reviewer has left to read against `parents`, given `review`, the
+    /// tip they last marked each file reviewed at: each file as the tip differs from the bases
+    /// merged with that tip, so only what has changed since remains to read, or from the plain
+    /// base for a file never marked. Files are keyed by where they end up.
+    pub fn review_diffs(
+        &self,
+        parents: &BTreeSet<ChangeId>,
+        review: &BTreeMap<RepoPath, RevisionId>,
+        pathspecs: &[Pathspec],
+    ) -> Result<Vec<FileDiff>> {
         let bases = self.bases(parents)?;
         // One diff per distinct reviewed tip, `None` covering the files never marked.
         let mut groups: BTreeSet<Option<RevisionId>> = review.values().map(|revision| Some(*revision)).collect();
@@ -100,9 +105,9 @@ impl<'txn> Branch<'txn> {
             let base = self.merged(&revisions)?;
             let mut changed = self.changed_files_from(base, pathspecs)?;
             changed.retain(|file| review.get(file.path()).copied() == reviewed);
-            files.extend(changed);
+            files.extend(changed.into_iter().map(|file| FileDiff::new(file, base, self.tip)));
         }
-        files.sort_by(|a, b| a.path().cmp(b.path()));
+        files.sort_by(|a, b| a.file.path().cmp(b.file.path()));
         Ok(files)
     }
 
