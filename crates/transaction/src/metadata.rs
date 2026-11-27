@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, Reviewing, RevisionId, TimestampS, TreeId,
+    ChangeId, ChangeIdRef, ForgeEventId, Identity, RepoPath, Result, Reviewing, RevisionId, TimestampS, TreeId,
     log::{self, LogAction},
 };
 use gix::{
@@ -29,6 +29,8 @@ const ACTIONS_FILE: &str = "actions.jsonl";
 /// Always present, empty for no description, so clearing it on one device while editing it on
 /// another merges as a text conflict rather than a modify/delete one.
 const DESCRIPTION_FILE: &str = "description.md";
+/// Present only in a commit imported from a forge, holding the id of the event it records.
+const FORGE_EVENT_FILE: &str = "forge-event";
 
 /// The text of `name` in `tree`, or `None` when no file is there.
 fn file(tree: &Tree<'_>, name: &str) -> Result<Option<String>> {
@@ -42,6 +44,9 @@ struct LogCommit {
     time: TimestampS,
     parents: Vec<ObjectId>,
     actions: Vec<LogAction>,
+    /// The forge event this records. Such a commit has no parents, since nothing of the importing
+    /// log goes into it: every device importing the event writes the same commit.
+    forge_event: Option<ForgeEventId>,
 }
 
 impl LogCommit {
@@ -49,18 +54,25 @@ impl LogCommit {
     /// to, see [`LogAction::revision`].
     fn read(repo: &Repository, id: ObjectId) -> Result<Self> {
         let commit = repo.find_commit(id)?;
-        let text =
-            file(&commit.tree()?, ACTIONS_FILE)?.ok_or_else(|| format!("log commit {id} has no {ACTIONS_FILE}"))?;
+        let tree = commit.tree()?;
+        let text = file(&tree, ACTIONS_FILE)?.ok_or_else(|| format!("log commit {id} has no {ACTIONS_FILE}"))?;
         let actions = log::parse(&text)?;
+        let forge_event = file(&tree, FORGE_EVENT_FILE)?.map(|event| event.parse()).transpose()?;
         let referenced: BTreeSet<ObjectId> =
             actions.iter().filter_map(LogAction::revision).map(ObjectId::from).collect();
         let parents: Vec<ObjectId> = commit.parent_ids().map(gix::Id::detach).collect();
         if let Some(missing) = referenced.iter().find(|revision| !parents.contains(revision)) {
             Err(format!("log commit {id} refers to {missing} without taking it as a parent"))?;
         }
-        let parents = parents.into_iter().filter(|parent| !referenced.contains(parent)).collect();
-        Ok(Self { time: commit.time()?.seconds, parents, actions })
+        let parents: Vec<ObjectId> = parents.into_iter().filter(|parent| !referenced.contains(parent)).collect();
+        if forge_event.is_some() && !parents.is_empty() {
+            Err(format!("log commit {id} records a forge event, so cannot have been written on other commits"))?;
+        }
+        Ok(Self { time: commit.time()?.seconds, parents, actions, forge_event })
     }
+
+    /// Where this folds among the commits whose parents are all folded, ties broken by `id`.
+    fn fold_order(&self, id: ObjectId) -> (bool, TimestampS, ObjectId) { (self.forge_event.is_some(), self.time, id) }
 }
 
 // TODO-someday(joel): every read folds the whole log. Materialize the state, stored on each log
@@ -80,7 +92,9 @@ fn commits(repo: &Repository, head: ObjectId) -> Result<BTreeMap<ObjectId, LogCo
 
 /// Every action of the log ending at `head`, each after all those its commit was written on.
 /// Commits written without seeing each other go in time order, ties broken by id, so that every
-/// device folds the same log alike.
+/// device folds the same log alike. A forge event goes after every write that did not see it,
+/// whatever their clocks say: the forge holds what it reports, so only a write made knowing of
+/// the event can mean to change it.
 fn actions(repo: &Repository, head: ObjectId) -> Result<Vec<LogAction>> {
     let mut commits = commits(repo, head)?;
 
@@ -92,16 +106,19 @@ fn actions(repo: &Repository, head: ObjectId) -> Result<Vec<LogAction>> {
     }
     let mut unfolded_parents: BTreeMap<ObjectId, usize> =
         commits.iter().map(|(id, commit)| (*id, commit.parents.len())).collect();
-    let mut ready: BTreeSet<(TimestampS, ObjectId)> =
-        commits.iter().filter(|(_, commit)| commit.parents.is_empty()).map(|(id, commit)| (commit.time, *id)).collect();
+    let mut ready: BTreeSet<_> = commits
+        .iter()
+        .filter(|(_, commit)| commit.parents.is_empty())
+        .map(|(id, commit)| commit.fold_order(*id))
+        .collect();
     let mut actions = Vec::new();
-    while let Some((_, id)) = ready.pop_first() {
+    while let Some((_, _, id)) = ready.pop_first() {
         actions.extend(commits.remove(&id).expect("each commit is ready once").actions);
         for child in children.remove(&id).into_iter().flatten() {
             let unfolded = unfolded_parents.get_mut(&child).expect("every child is a commit of the log");
             *unfolded -= 1;
             if *unfolded == 0 {
-                ready.insert((commits[&child].time, child));
+                ready.insert(commits[&child].fold_order(child));
             }
         }
     }

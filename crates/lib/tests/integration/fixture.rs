@@ -325,6 +325,17 @@ impl Fixture {
         self.commit_tree_at(write_tree(&self.repo, &files), parents, seconds)
     }
 
+    /// A log commit recording the forge event `event` as `actions` at `seconds`, as importing it
+    /// writes when `parents` is empty.
+    pub fn forge_commit(&self, event: &str, parents: &[RevisionId], seconds: i64, actions: &[LogAction]) -> RevisionId {
+        let files = BTreeMap::from([
+            ("actions.jsonl".into(), log::render(actions).unwrap()),
+            ("description.md".into(), String::new()),
+            ("forge-event".into(), event.into()),
+        ]);
+        self.commit_tree_at(write_tree(&self.repo, &files), parents, seconds)
+    }
+
     /// Point `change`'s log ref at `revision`.
     pub fn move_log(&self, change: &str, revision: RevisionId) {
         self.repo.reference(id(change).log_ref(), revision.0, PreviousValue::Any, "fixture").unwrap();

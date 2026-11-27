@@ -120,27 +120,54 @@ fn started() -> (Fixture, RevisionId) {
 }
 
 #[test]
-fn parentless_write_folds_at_own_time_whenever_joined() {
+fn forge_event_folds_after_writes_that_did_not_see_it_whatever_their_clocks() {
     let (fixture, start) = started();
-    let fact = fixture.log_commit(&[], 20, &[title("fact")]);
+    let renamed = fixture.forge_commit("renamed-1", &[], 20, &[title("forge")]);
     let before = fixture.log_commit(&[start], 10, &[title("before")]);
     let after = fixture.log_commit(&[start], 30, &[title("after")]);
     let titles: Vec<_> = [(before, 15), (before, 40), (after, 25), (after, 40)]
         .into_iter()
         .map(|(local, joined)| {
-            fixture.move_log("main", fixture.log_commit(&[local, fact], joined, &[]));
+            fixture.move_log("main", fixture.log_commit(&[local, renamed], joined, &[]));
             fixture.snapshot("main").title
         })
         .collect();
-    expect![[r#"[Some("fact"), Some("fact"), Some("after"), Some("after")]"#]].assert_eq(&format!("{titles:?}"));
+    expect![[r#"[Some("forge"), Some("forge"), Some("forge"), Some("forge")]"#]].assert_eq(&format!("{titles:?}"));
 }
 
 #[test]
-fn write_folds_after_parentless_write_it_joined_whatever_its_clock() {
+fn write_folds_after_forge_event_it_joined_whatever_its_clock() {
     let (fixture, start) = started();
-    let fact = fixture.log_commit(&[], 20, &[title("fact")]);
-    let joined = fixture.log_commit(&[start, fact], 5, &[]);
+    let renamed = fixture.forge_commit("renamed-1", &[], 20, &[title("forge")]);
+    let joined = fixture.log_commit(&[start, renamed], 5, &[]);
     fixture.move_log("main", fixture.log_commit(&[joined], 10, &[title("written on a clock running behind")]));
     expect![[r#"Some("written on a clock running behind")"#]]
         .assert_eq(&format!("{:?}", fixture.snapshot("main").title));
+}
+
+#[test]
+fn forge_events_fold_in_time_order_whichever_was_joined_first() {
+    let (fixture, start) = started();
+    let written = fixture.log_commit(&[start], 100, &[title("written here")]);
+    let echoed = fixture.forge_commit("renamed-1", &[], 20, &[title("written here")]);
+    let renamed = fixture.forge_commit("renamed-2", &[], 30, &[title("renamed on forge")]);
+    let titles: Vec<_> = [(echoed, renamed), (renamed, echoed)]
+        .into_iter()
+        .map(|(first, second)| {
+            let joined = fixture.log_commit(&[written, first], 110, &[]);
+            fixture.move_log("main", fixture.log_commit(&[joined, second], 120, &[]));
+            fixture.snapshot("main").title
+        })
+        .collect();
+    expect![[r#"[Some("renamed on forge"), Some("renamed on forge")]"#]].assert_eq(&format!("{titles:?}"));
+}
+
+#[test]
+fn forge_event_cannot_have_been_written_on_other_commits() {
+    let (fixture, start) = started();
+    let based = fixture.forge_commit("renamed-1", &[start], 20, &[title("forge")]);
+    fixture.move_log("main", based);
+    let error = fixture.cabaret.snapshot(&id("main")).unwrap_err();
+    expect!["log commit BASED records a forge event, so cannot have been written on other commits"]
+        .assert_eq(&format!("{error:?}").replace(&based.to_string(), "BASED"));
 }
