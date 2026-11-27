@@ -19,9 +19,8 @@ use crate::{change_id::ChangeId, identity::Identity, repo_path::RepoPath, worksp
 pub enum Safeguard {
     /// Archived parent of a non-archived change (parent would be included in diff)
     ArchivedParents { parents: NEBTreeSet<ChangeId> },
-    // TODO(joel for claude): `removed: NEBTreeSet<ChangeId>` will be necessary for `cab parents set`
-    /// Removing a parent moves the change's base back (parent would be included in diff)
-    BaseMoves { removed: ChangeId },
+    /// Removing parents moves the change's base back (their work would be included in diff)
+    BaseMoves { removed: NEBTreeSet<ChangeId> },
     /// Files would be left holding conflict markers.
     Conflicted { files: NEBTreeSet<RepoPath> },
     /// The change adds nothing to its parent.
@@ -74,7 +73,7 @@ impl fmt::Display for Safeguard {
                 let verb = if parents.len().get() == 1 { "is" } else { "are" };
                 write!(f, "{} {verb} archived, so should not have unarchived children", joined(parents))
             }
-            Self::BaseMoves { removed } => write!(f, "its diff would take in the work of {removed}"),
+            Self::BaseMoves { removed } => write!(f, "its diff would take in the work of {}", joined(removed)),
             Self::Conflicted { files } => write!(f, "conflicts in {}", joined(files)),
             Self::Empty { parent } => write!(f, "it adds nothing to {parent}"),
             Self::ImpermanentParents { parents } => {

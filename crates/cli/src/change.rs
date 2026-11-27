@@ -54,7 +54,10 @@ pub enum ParentsCommand {
         parents: Vec<ChangeId>,
     },
     /// Replace archived parents with their own and drop those already an ancestor of another
-    Fix,
+    Fix {
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -301,7 +304,7 @@ impl ChangeCommand {
                     ParentsCommand::Remove { parent, allow } => {
                         cabaret.remove_parent(change, &parent, &BTreeSet::from_iter(allow))?;
                     }
-                    ParentsCommand::Fix => cabaret.fix_parents(change)?,
+                    ParentsCommand::Fix { allow } => cabaret.fix_parents(change, &BTreeSet::from_iter(allow))?,
                     ParentsCommand::Set { parents: _ } => {
                         return Err("change parents set is not implemented yet".into());
                     }

@@ -130,7 +130,7 @@ fn unfixed_parents_are_fixed_first() {
     let fixture = conflicted();
     fixture.archive("child");
     expect!["fix parents"].assert_eq(&next_step(&fixture, "grandchild"));
-    fixture.cabaret.fix_parents(&id("grandchild")).unwrap();
+    fixture.cabaret.fix_parents(&id("grandchild"), &BTreeSet::from([SafeguardKind::BaseMoves])).unwrap();
     expect!["[!r] rebase onto main"].assert_eq(&next_step(&fixture, "grandchild"));
 }
 

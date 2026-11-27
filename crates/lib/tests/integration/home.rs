@@ -75,7 +75,7 @@ fn landed_parent_stays_above_children_until_they_are_fixed() {
         page.lines().find(|line| line.starts_with("Next step: ")).unwrap().to_owned()
     };
     expect!["Next step: fix parents"].assert_eq(&next_step("left"));
-    fixture.cabaret.fix_parents(&id("left")).unwrap();
+    fixture.cabaret.fix_parents(&id("left"), &BTreeSet::new()).unwrap();
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com

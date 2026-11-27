@@ -75,7 +75,7 @@ fn fix_replaces_archived_parent_with_grandparents() {
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
     fixture.archive("parent");
-    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    fixture.cabaret.fix_parents(&id("child"), &BTreeSet::new()).unwrap();
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
@@ -87,8 +87,71 @@ fn fix_drops_ancestor_of_other_parent() {
     fixture.create("child", "parent", &alice());
     let allow = BTreeSet::from([SafeguardKind::RedundantParent]);
     expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
-    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    fixture.cabaret.fix_parents(&id("child"), &BTreeSet::new()).unwrap();
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
+}
+
+fn fix_parents(fixture: &Fixture, change: &str, allow: &BTreeSet<SafeguardKind>) -> String {
+    shown(fixture.cabaret.fix_parents(&id(change), allow))
+}
+
+#[test]
+fn fix_past_unlanded_parent_refuses_unless_allowed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.commit("parent", &[("parent.txt", "parent\n")]);
+    fixture.create("child", "parent", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.archive("parent");
+    expect!["refused: its diff would take in the work of parent"].assert_eq(&fix_parents(
+        &fixture,
+        "child",
+        &BTreeSet::new(),
+    ));
+    expect![[r#"
+        child 2aee3be4
+          parents parent
+          owners alice@example.com
+          title child
+          base parent
+          diff +child.txt
+    "#]]
+    .assert_eq(&fixture.show("child"));
+    expect!["done"].assert_eq(&fix_parents(&fixture, "child", &BTreeSet::from([SafeguardKind::BaseMoves])));
+    expect![[r#"
+        child 2aee3be4
+          parents main
+          owners alice@example.com
+          title child
+          base main
+          diff +child.txt +parent.txt
+    "#]]
+    .assert_eq(&fixture.show("child"));
+}
+
+#[test]
+fn fix_past_landed_parent_keeps_base() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.commit("parent", &[("parent.txt", "parent\n")]);
+    fixture.create("child", "parent", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.commit("main", &[("main.txt", "main\n")]);
+    fixture.mark_all("parent");
+    fixture.endorse("parent");
+    fixture.cabaret.land(&id("parent"), &BTreeSet::new()).unwrap();
+    expect!["done"].assert_eq(&fix_parents(&fixture, "child", &BTreeSet::new()));
+    expect![[r#"
+        child
+          parents main
+          owners alice@example.com
+          title child
+          base 4edb60ca
+          diff +child.txt
+    "#]]
+    .assert_eq(&fixture.describe("child"));
 }
 
 #[test]

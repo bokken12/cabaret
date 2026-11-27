@@ -629,7 +629,7 @@ impl Cabaret {
                 return Ok(());
             }
             if branch.base(&metadata.parents)? != before {
-                txn.check(Safeguard::BaseMoves { removed: parent_id.to_owned() });
+                txn.check(Safeguard::BaseMoves { removed: nebts![parent_id.to_owned()] });
             }
             if metadata.parents.is_empty() {
                 txn.check(Safeguard::Parentless);
@@ -642,12 +642,18 @@ impl Cabaret {
     }
 
     /// Replace `change_id`'s archived parents with their own and drop those already an ancestor
-    /// of another, see `Metadata::fixed_parents`.
-    // TODO-someday(joel): refuse with `BaseMoves` when a replaced parent was archived without
-    // landing, so that fixing takes its work into the diff.
-    pub fn fix_parents(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata| {
-            metadata.parents = metadata.fixed_parents()?;
+    /// of another, see `Metadata::fixed_parents`. A parent archived without landing takes the
+    /// base back with it, which refuses unless allowed.
+    pub fn fix_parents(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
+        self.store.update_metadata(allow, change_id, |txn, metadata| {
+            let branch = txn.branch(change_id)?;
+            let fixed = metadata.fixed_parents()?;
+            if branch.base(&fixed)? != branch.base(&metadata.parents)? {
+                let removed = NEBTreeSet::try_from_set(&metadata.parents - &fixed)
+                    .expect("fixing moves the base only by removing parents");
+                txn.check(Safeguard::BaseMoves { removed });
+            }
+            metadata.parents = fixed;
             Ok(())
         })
     }

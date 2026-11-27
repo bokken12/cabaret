@@ -260,7 +260,7 @@ fn fixed_parents_land_past_archived_parent() {
     fixture.mark_all("child");
     fixture.endorse("child");
     fixture.archive("parent");
-    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    fixture.cabaret.fix_parents(&id("child"), &BTreeSet::new()).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
 }
 
