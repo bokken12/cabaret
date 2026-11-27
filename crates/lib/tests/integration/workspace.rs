@@ -102,16 +102,12 @@ fn add_refuses_change_already_checked_out() {
 #[test]
 fn switch_swaps_files_and_head() {
     let fixture = two_changes();
-    expect!["error: one must be declared to touch workspace main"].assert_eq(&switch(
-        &fixture,
-        "two",
-        &BTreeSet::new(),
-    ));
-    expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &BTreeSet::new()));
+    expect![[r#"{"main": Some("two")}"#]].assert_eq(&workspaces(&fixture));
     expect![[r#"
         clean
         main.txt "main\n"
-        one.txt "one\n"
+        two.txt "two\n"
     "#]]
     .assert_eq(&fixture.worktree());
 }
@@ -121,22 +117,14 @@ fn switch_refuses_dirty_workspace_unless_allowed() {
     let fixture = two_changes();
     fixture.write("one.txt", "edited\n");
     fixture.write("scratch.txt", "scratch\n");
-    expect!["error: one must be declared to touch workspace main"].assert_eq(&switch(
-        &fixture,
-        "two",
-        &BTreeSet::new(),
-    ));
+    expect!["refused: workspace main has uncommitted changes"].assert_eq(&switch(&fixture, "two", &BTreeSet::new()));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
-    expect!["error: one must be declared to touch workspace main"].assert_eq(&switch(
-        &fixture,
-        "two",
-        &BTreeSet::from([SafeguardKind::Uncommitted]),
-    ));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &BTreeSet::from([SafeguardKind::Uncommitted])));
     expect![[r#"
-        dirty
+        clean
         main.txt "main\n"
-        one.txt "edited\n"
         scratch.txt "scratch\n"
+        two.txt "two\n"
     "#]]
     .assert_eq(&fixture.worktree());
 }
@@ -145,16 +133,12 @@ fn switch_refuses_dirty_workspace_unless_allowed() {
 fn switch_keeps_untracked_files() {
     let fixture = two_changes();
     fixture.write("scratch.txt", "scratch\n");
-    expect!["error: one must be declared to touch workspace main"].assert_eq(&switch(
-        &fixture,
-        "two",
-        &BTreeSet::new(),
-    ));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &BTreeSet::new()));
     expect![[r#"
         clean
         main.txt "main\n"
-        one.txt "one\n"
         scratch.txt "scratch\n"
+        two.txt "two\n"
     "#]]
     .assert_eq(&fixture.worktree());
 }
@@ -163,7 +147,7 @@ fn switch_keeps_untracked_files() {
 fn switch_refuses_change_checked_out_elsewhere() {
     let fixture = two_changes();
     fixture.add_workspace("two");
-    expect!["error: one must be declared to touch workspace main"].assert_eq(&switch(
+    expect!["error: two is already checked out in workspace main-two"].assert_eq(&switch(
         &fixture,
         "two",
         &BTreeSet::new(),
@@ -171,44 +155,43 @@ fn switch_refuses_change_checked_out_elsewhere() {
     expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
 
-// TODO(joel): fix
-// #[test]
-// fn remove_deletes_clean_workspace() {
-//     let fixture = two_changes();
-//     let two = fixture.add_workspace("two");
-//     expect!["error: two must be declared to touch workspace main-two"].assert_eq(&remove(&fixture, "main-two",
-// &BTreeSet::new()));     expect![[r#"{"main": Some("one"), "main-two":
-// Some("two")}"#]].assert_eq(&workspaces(&fixture));     expect![[r#"Some("main-two")"#]].assert_eq(&format!("{:?}",
-// fixture.snapshot("two").workspace));     assert!(!two.workdir().unwrap().exists());
-//     assert!(!two.git_dir().exists());
-// }
+#[test]
+fn remove_deletes_clean_workspace() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    expect!["done"].assert_eq(&remove(&fixture, "main-two", &BTreeSet::new()));
+    expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+    expect!["None"].assert_eq(&format!("{:?}", fixture.snapshot("two").workspace));
+    assert!(!two.workdir().unwrap().exists());
+    assert!(!two.git_dir().exists());
+}
 
-// #[test]
-// fn remove_refuses_dirty_workspace_unless_allowed() {
-//     let fixture = two_changes();
-//     let two = fixture.add_workspace("two");
-//     std::fs::write(two.workdir().unwrap().join("two.txt"), "edited\n").unwrap();
-//     expect!["error: two must be declared to touch workspace main-two"].assert_eq(&remove(
-//         &fixture,
-//         "main-two",
-//         &BTreeSet::new(),
-//     ));
-//     expect![[r#"
-//         dirty
-//         main.txt "main\n"
-//         two.txt "edited\n"
-//     "#]]
-//     .assert_eq(&worktree(&two));
-//     expect!["error: two must be declared to touch workspace main-two"].assert_eq(&remove(&fixture, "main-two",
-// &BTreeSet::from([SafeguardKind::Uncommitted])));     assert!(!two.workdir().unwrap().exists());
-// }
+#[test]
+fn remove_refuses_dirty_workspace_unless_allowed() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    std::fs::write(two.workdir().unwrap().join("two.txt"), "edited\n").unwrap();
+    expect!["refused: workspace main-two has uncommitted changes"].assert_eq(&remove(
+        &fixture,
+        "main-two",
+        &BTreeSet::new(),
+    ));
+    expect![[r#"
+        dirty
+        main.txt "main\n"
+        two.txt "edited\n"
+    "#]]
+    .assert_eq(&worktree(&two));
+    expect!["done"].assert_eq(&remove(&fixture, "main-two", &BTreeSet::from([SafeguardKind::Uncommitted])));
+    assert!(!two.workdir().unwrap().exists());
+}
 
 #[test]
 fn remove_refuses_workspace_with_untracked_files() {
     let fixture = two_changes();
     let two = fixture.add_workspace("two");
     std::fs::write(two.workdir().unwrap().join("scratch.txt"), "scratch\n").unwrap();
-    expect!["error: two must be declared to touch workspace main-two"].assert_eq(&remove(
+    expect!["refused: workspace main-two has uncommitted changes"].assert_eq(&remove(
         &fixture,
         "main-two",
         &BTreeSet::new(),
@@ -232,9 +215,9 @@ fn remove_failing_partway() {
     let error = error.replace(&workdir.display().to_string(), "<workdir>");
     let left: Vec<_> = fs::read_dir(&workdir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
     expect![[r#"
-        error: two must be declared to touch workspace main-two
-        {"main": Some("one"), "main-two": Some("two")}
-        ["two.txt", "main.txt", ".git"]"#]]
+        error: workspace main-two is removed, but deleting <workdir> failed: Permission denied (os error 13)
+        {"main": Some("one")}
+        []"#]]
     .assert_eq(&format!("{error}\n{}\n{left:?}", workspaces(&fixture)));
 }
 
@@ -242,7 +225,7 @@ fn remove_failing_partway() {
 fn main_workspace_cannot_be_removed() {
     let fixture = two_changes();
     fixture.write("scratch.txt", "scratch\n");
-    expect!["error: one must be declared to touch workspace main"]
+    expect!["error: the main workspace cannot be removed"]
         .assert_eq(&shown(fixture.cabaret.workspace_remove(WorkspaceId::Main.to_ref(), &BTreeSet::new())));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -292,7 +275,7 @@ fn workspace_outlives_workspace_it_was_added_from() {
     let fixture = two_changes_in(Fixture::bare());
     let two = fixture.cabaret.workspace_add(&id("two"), None).unwrap();
     let one = open_cabaret(&two).workspace_add(&id("one"), None).unwrap();
-    expect!["error: two must be declared to touch workspace two"].assert_eq(&remove(&fixture, "two", &BTreeSet::new()));
+    expect!["done"].assert_eq(&remove(&fixture, "two", &BTreeSet::new()));
     expect![[r#""one""#]].assert_eq(&format!("{:?}", open_cabaret(&one).workspace_current().unwrap()));
 }
 
