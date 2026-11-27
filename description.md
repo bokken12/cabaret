@@ -1,0 +1,1 @@
+Branch::review_diffs returns each file left to review with the base it differs from, so view_diff's review view no longer rebuilds the per-reviewed-tip grouping that review_files already does. Drops Branch::review_base, whose only use was that rebuild.
