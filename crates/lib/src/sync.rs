@@ -32,10 +32,7 @@ impl Cabaret {
             .prepare_fetch(gix::progress::Discard, options)?
             .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
 
-        for reference in repo.references()?.prefixed(ChangeIdRef::ORIGIN_LOG_REF_PREFIX)? {
-            let name = reference?.name().as_bstr().to_str()?.to_owned();
-            let change_id: ChangeId =
-                name.strip_prefix(ChangeIdRef::ORIGIN_LOG_REF_PREFIX).expect("listed by this prefix").parse()?;
+        for change_id in changes_under(&repo, ChangeIdRef::ORIGIN_LOG_REF_PREFIX)? {
             self.store.merge_origin_log(&change_id)?;
         }
 
@@ -49,10 +46,7 @@ impl Cabaret {
             }
         }
         self.store.query(|txn| {
-            for reference in txn.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
-                let name = reference?.name().as_bstr().to_str()?.to_owned();
-                let change_id: ChangeId =
-                    name.strip_prefix(ChangeIdRef::LOG_REF_PREFIX).expect("listed by this prefix").parse()?;
+            for change_id in changes_under(&txn.repo, ChangeIdRef::LOG_REF_PREFIX)? {
                 if !txn.metadata(&change_id)?.archived {
                     synced.insert(change_id);
                 }
@@ -117,4 +111,14 @@ impl Cabaret {
             Ok(false)
         })
     }
+}
+
+/// The changes named by the refs under `prefix`.
+fn changes_under(repo: &gix::Repository, prefix: &str) -> Result<Vec<ChangeId>> {
+    let mut changes = Vec::new();
+    for reference in repo.references()?.prefixed(prefix)? {
+        let name = reference?.name().as_bstr().to_str()?.to_owned();
+        changes.push(name.strip_prefix(prefix).expect("listed by this prefix").parse()?);
+    }
+    Ok(changes)
 }
