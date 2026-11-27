@@ -1,0 +1,5 @@
+Lock a workspace's held branch automatically
+
+A fast-forward writes a workspace's files under only the lock of the branch it holds, so a transaction touching a workspace must hold that branch's lock too. Callers had to declare it themselves, and workspace_remove and workspace_switch did not, so every remove or switch of a workspace holding a change failed with "<change> must be declared to touch workspace <workspace>"; this broke VS Code's Land and Delete Workspace.
+
+Transactions now lock workspaces before branches, read what each workspace holds once its lock is taken, when it can no longer change, and lock that branch alongside the declared ones. The order is still fixed (metadata, workspaces, branches), so transactions still cannot deadlock. The declare-or-fail check goes away, as does workspace_prune's branch declaration; prune instead checks the workspace still holds the archived change it found.
