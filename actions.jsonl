@@ -1,1 +1,2 @@
-{"action":"endorse","endorser":"me+claude@joel.place"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/lib/src/cabaret.rs","revision":"e816ad3e0b3c7159f2cb131eacecdc8b9672fbfd"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/transaction/src/branch.rs","revision":"e816ad3e0b3c7159f2cb131eacecdc8b9672fbfd"}
