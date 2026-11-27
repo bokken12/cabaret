@@ -56,9 +56,9 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
 - Change left without a greatest common ancestor
   - May prevent change from ever reaching a single parent
 - Add archived parent to unarchived child
-  - Will be automaticaly skipped by parent inference
+  - Leaves the parents in need of fixing
 - Add ancestor of existing parent
-  - Will be automatically skipped by parent inference
+  - Leaves the parents in need of fixing
 - Edit archived?
 
 ## Workspace
