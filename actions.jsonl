@@ -1,0 +1,8 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/fixture.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/import.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/mod.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/store.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/log.rs","revision":"003e574a50d334c4d475b0472e056802bd26f4ea"}
