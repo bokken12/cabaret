@@ -5,7 +5,9 @@ use std::{
     time::Duration,
 };
 
-use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
+use cabaret_types::{
+    ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, log::ForgeEvent, safeguard::SafeguardKind,
+};
 use gix::{
     ThreadSafeRepository,
     fs::SharedPermissions,
@@ -339,17 +341,30 @@ impl Store {
     }
 
     // TODO(joel): think about this?
-    /// Bring `id`'s log up to date with origin's; see [`Metadata::merge_origin`]. A merge is a
-    /// transaction of its own: it writes the log commits it merges rather than actions taken now,
-    /// so no in-flight metadata can express it.
-    pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
+    /// Move `id`'s log by the ref edit `f` makes of its metadata, if any. A transaction of its
+    /// own: such an edit joins log commits written elsewhere rather than taking actions now, so
+    /// no in-flight metadata can express it.
+    fn edit_log<F>(&self, id: &ChangeIdRef, f: F) -> Result<()>
+    where
+        F: for<'txn> FnOnce(&'txn Metadata<'txn>) -> Result<Option<RefEdit>>,
+    {
         let allow = BTreeSet::new();
         let txn =
             Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
-        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
+        if let Some(edit) = f(txn.metadata(id)?)? {
             txn.repo.edit_reference(edit)?;
         }
         Ok(())
+    }
+
+    /// Bring `id`'s log up to date with origin's; see [`Metadata::merge_origin`].
+    pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
+        self.edit_log(id, |metadata| metadata.merge_origin())
+    }
+
+    /// Record in `id`'s log those of `events` it does not yet hold; see [`Metadata::import`].
+    pub fn import_forge_events(&self, id: &ChangeIdRef, events: &[ForgeEvent]) -> Result<()> {
+        self.edit_log(id, |metadata| metadata.import(events))
     }
 
     pub fn update_metadata<T, F>(&self, allow: &BTreeSet<SafeguardKind>, id: &ChangeIdRef, f: F) -> Result<T>

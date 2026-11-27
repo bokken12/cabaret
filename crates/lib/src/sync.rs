@@ -4,7 +4,7 @@ use std::{
 };
 
 use cabaret_transaction::BranchOp;
-use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId};
+use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId, log::ForgeEvent};
 use gix::{bstr::ByteSlice, protocol::handshake::Ref, remote::Direction};
 
 use crate::cabaret::Cabaret;
@@ -77,6 +77,12 @@ impl Cabaret {
             Err(format!("pushing to origin failed: {}", String::from_utf8_lossy(&pushed.stderr).trim_end()))?;
         }
         Ok(apart)
+    }
+
+    /// Record in `change_id`'s log those of `events`, from its forge change's history, that it
+    /// does not yet hold.
+    pub fn import_forge_events(&self, change_id: &ChangeIdRef, events: &[ForgeEvent]) -> Result<()> {
+        self.store.import_forge_events(change_id, events)
     }
 
     /// Bring `change_id`'s branch level with origin's as last fetched, by creating it or

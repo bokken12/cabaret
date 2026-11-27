@@ -12,9 +12,9 @@ pub use cabaret_page::{
     Tag, Target, name,
 };
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
-    RepoPath, Result, Reviewing, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, is_binary,
-    line_diff, log, safeguard,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, ForgeEventId, Identity,
+    LineCounts, Pathspec, RepoPath, Result, Reviewing, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId,
+    WorkspaceIdRef, is_binary, line_diff, log, safeguard,
 };
 pub use gix;
 pub use workspace::Prune;

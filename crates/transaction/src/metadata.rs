@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use cabaret_types::{
     ChangeId, ChangeIdRef, ForgeEventId, Identity, RepoPath, Result, Reviewing, RevisionId, TimestampS, TreeId,
-    log::{self, LogAction},
+    log::{self, ForgeEvent, LogAction},
 };
 use gix::{
     ObjectId, Repository, Tree,
@@ -126,18 +126,49 @@ fn actions(repo: &Repository, head: ObjectId) -> Result<Vec<LogAction>> {
     Ok(actions)
 }
 
-/// A log commit's tree: `actions` and the description as it then is.
-fn write_tree(repo: &Repository, actions: &str, description: &str) -> Result<TreeId> {
-    let mut entries = vec![
-        Entry { mode: EntryKind::Blob.into(), filename: ACTIONS_FILE.into(), oid: repo.write_blob(actions)?.detach() },
-        Entry {
+/// A log commit's tree: `actions`, the description as it then is, and the forge event it records
+/// if any.
+fn write_tree(
+    repo: &Repository,
+    actions: &str,
+    description: &str,
+    forge_event: Option<&ForgeEventId>,
+) -> Result<TreeId> {
+    let mut files = vec![(ACTIONS_FILE, actions.to_owned()), (DESCRIPTION_FILE, description.to_owned())];
+    files.extend(forge_event.map(|event| (FORGE_EVENT_FILE, event.to_string())));
+    let mut entries = Vec::new();
+    for (name, text) in files {
+        entries.push(Entry {
             mode: EntryKind::Blob.into(),
-            filename: DESCRIPTION_FILE.into(),
-            oid: repo.write_blob(description)?.detach(),
-        },
-    ];
+            filename: name.into(),
+            oid: repo.write_blob(text)?.detach(),
+        });
+    }
     entries.sort();
     Ok(TreeId(repo.write_object(&gix::objs::Tree { entries })?.detach()))
+}
+
+// TODO-someday(joel): a description edited on the forge has nowhere to go: descriptions are a
+// file merged as text rather than an action, so no forge event can set one.
+/// The log commit recording `event`, written from nothing but the event so that it is the same
+/// commit on every device.
+fn forge_commit(repo: &Repository, event: &ForgeEvent) -> Result<ObjectId> {
+    let text = log::render(&event.actions)?;
+    let signature = gix::actor::Signature {
+        name: event.author.as_ref().into(),
+        email: event.author.as_ref().into(),
+        time: gix::date::Time { seconds: event.time, offset: 0 },
+    };
+    let commit = gix::objs::Commit {
+        tree: write_tree(repo, &text, "", Some(&event.id))?.0,
+        parents: event.actions.iter().filter_map(LogAction::revision).map(ObjectId::from).collect(),
+        author: signature.clone(),
+        committer: signature,
+        encoding: None,
+        message: text.into(),
+        extra_headers: Vec::new(),
+    };
+    Ok(repo.write_object(&commit)?.detach())
 }
 
 /// The description as the log commit `id` has it, empty for none.
@@ -342,7 +373,7 @@ impl<'txn> Metadata<'txn> {
 
         let txn = self.txn();
         let text = log::render(&actions)?;
-        let tree = write_tree(&txn.repo, &text, self.description.as_deref().unwrap_or(""))?;
+        let tree = write_tree(&txn.repo, &text, self.description.as_deref().unwrap_or(""), None)?;
 
         let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::revision).collect();
         let parents = self.commit.map(RevisionId).into_iter().chain(referenced).collect();
@@ -427,8 +458,30 @@ impl<'txn> Metadata<'txn> {
             options,
         );
 
-        let tree = write_tree(repo, "", &String::from_utf8(merged)?)?;
+        let tree = write_tree(repo, "", &String::from_utf8(merged)?, None)?;
         Ok(txn.commit(tree, vec![RevisionId(local), RevisionId(other)], "merge\n")?.0)
+    }
+
+    /// The ref edit joining those of `events` this change's log does not yet hold to it, each as
+    /// a commit of its own (see [`forge_commit`]) under one that takes no actions; `None` when it
+    /// holds them all. The edit expects the commit this was read from, so a concurrent write
+    /// fails rather than being overwritten.
+    pub fn import(&self, events: &[ForgeEvent]) -> Result<Option<RefEdit>> {
+        let repo = &self.txn.repo;
+        let held: BTreeSet<ForgeEventId> = match self.commit {
+            Some(head) => commits(repo, head)?.into_values().filter_map(|commit| commit.forge_event).collect(),
+            None => BTreeSet::new(),
+        };
+        let mut imported = BTreeSet::new();
+        for event in events.iter().filter(|event| !held.contains(&event.id)) {
+            imported.insert(RevisionId(forge_commit(repo, event)?));
+        }
+        if imported.is_empty() {
+            return Ok(None);
+        }
+        let tree = write_tree(repo, "", self.description.as_deref().unwrap_or(""), None)?;
+        let parents = self.commit.map(RevisionId).into_iter().chain(imported).collect();
+        Ok(Some(self.edit(self.txn.commit(tree, parents, "import\n")?.0, "cabaret: import")))
     }
 
     /// The edit moving this change's log ref from the commit this was read from to `new`.
