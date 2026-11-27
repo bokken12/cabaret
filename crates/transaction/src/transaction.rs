@@ -22,7 +22,7 @@ use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 // TODO(joel): each ref is read when first asked for, so another transaction's write to several
 // can be seen half applied; think about giving a transaction a single consistent view.
 /// One transaction's view of the repository, holding its resources' locks
-pub struct TransactionContext<'txn> {
+pub struct Transaction<'txn> {
     pub repo: Repository,
     metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'txn>>>,
     branches: FrozenBTreeMap<ChangeId, Box<Branch<'txn>>>,
@@ -33,13 +33,13 @@ pub struct TransactionContext<'txn> {
     _locks: Vec<Marker>,
 }
 
-impl fmt::Debug for TransactionContext<'_> {
+impl fmt::Debug for Transaction<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TransactionContext").field("git_dir", &self.repo.git_dir()).finish_non_exhaustive()
     }
 }
 
-impl<'txn> TransactionContext<'txn> {
+impl<'txn> Transaction<'txn> {
     pub fn new(repo: Repository, locks: Vec<Marker>, allowed_safeguards: &'txn BTreeSet<SafeguardKind>) -> Self {
         Self {
             repo,

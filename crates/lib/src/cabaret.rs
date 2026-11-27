@@ -6,9 +6,7 @@ use std::{
 
 use cabaret_config::{Hints, Prefix};
 use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, Route, TabCounts};
-use cabaret_transaction::{
-    Branch, BranchOp, Metadata, Status, Store, TransactionContext, WorkspaceOp, pathspec_search,
-};
+use cabaret_transaction::{Branch, BranchOp, Metadata, Status, Store, Transaction, WorkspaceOp, pathspec_search};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
     RepoPath, Result, Reviewing, RevisionId, ViewDiff,
@@ -850,7 +848,7 @@ fn track_origin_head(repo: &gix::Repository) -> Result<()> {
 }
 
 /// `None` for a change that cannot land: an archived one, or a root.
-fn next_step<'txn>(txn: &'txn TransactionContext<'txn>, change_id: &ChangeIdRef) -> Result<Option<NextStep>> {
+fn next_step<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Result<Option<NextStep>> {
     let metadata = txn.metadata(change_id)?;
     if metadata.archived {
         return Ok(None);
@@ -918,7 +916,7 @@ fn unreviewed(
 }
 
 /// The open changes landing into `change_id`.
-fn open_children<'txn>(txn: &'txn TransactionContext<'txn>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+fn open_children<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
     let mut children = BTreeSet::new();
     for id in txn.changes()? {
         let metadata = txn.metadata(&id)?;
@@ -930,7 +928,7 @@ fn open_children<'txn>(txn: &'txn TransactionContext<'txn>, change_id: &ChangeId
 }
 
 /// The one parent `change_id` lands into.
-fn landing_parent<'txn>(txn: &'txn TransactionContext<'txn>, change_id: &ChangeIdRef) -> Result<ChangeId> {
+fn landing_parent<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Result<ChangeId> {
     match txn.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
         [] => Err(format!("{change_id} cannot land while it has no parents"))?,
         [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,

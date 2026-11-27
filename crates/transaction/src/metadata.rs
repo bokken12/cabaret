@@ -23,7 +23,7 @@ use gix::{
     },
 };
 
-use crate::context::TransactionContext;
+use crate::transaction::Transaction;
 
 const ACTIONS_FILE: &str = "actions.jsonl";
 /// Always present, empty for no description, so clearing it on one device while editing it on
@@ -131,7 +131,7 @@ fn description(repo: &Repository, id: ObjectId) -> Result<String> {
 /// A change's metadata as of one instant: everything about it except where its branch points.
 #[derive(Clone, Debug)]
 pub struct Metadata<'txn> {
-    txn: &'txn TransactionContext<'txn>,
+    txn: &'txn Transaction<'txn>,
     id: ChangeId,
     commit: Option<ObjectId>,
     pub title: Option<String>,
@@ -148,7 +148,7 @@ pub struct Metadata<'txn> {
 
 impl<'txn> Metadata<'txn> {
     /// Empty metadata, as read from `commit` before anything in it is applied.
-    pub fn new(txn: &'txn TransactionContext<'txn>, id: ChangeId, commit: Option<ObjectId>) -> Self {
+    pub fn new(txn: &'txn Transaction<'txn>, id: ChangeId, commit: Option<ObjectId>) -> Self {
         Self {
             txn,
             id,
@@ -165,7 +165,7 @@ impl<'txn> Metadata<'txn> {
         }
     }
 
-    pub fn txn(&self) -> &'txn TransactionContext<'txn> { self.txn }
+    pub fn txn(&self) -> &'txn Transaction<'txn> { self.txn }
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
@@ -211,7 +211,7 @@ impl<'txn> Metadata<'txn> {
     }
 
     /// Fold `id`'s log and read its description.
-    pub fn load(txn: &'txn TransactionContext<'txn>, id: &ChangeIdRef) -> Result<Self> {
+    pub fn load(txn: &'txn Transaction<'txn>, id: &ChangeIdRef) -> Result<Self> {
         let Some(reference) = txn.repo.try_find_reference(&id.log_ref())? else {
             return Ok(Metadata::new(txn, id.to_owned(), None));
         };
@@ -425,7 +425,7 @@ impl<'txn> Metadata<'txn> {
     }
 }
 
-impl<'txn> TransactionContext<'txn> {
+impl<'txn> Transaction<'txn> {
     /// `changes` without any that is an ancestor of another of them.
     pub fn maximal_changes(&'txn self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
         let mut candidates = changes.clone();

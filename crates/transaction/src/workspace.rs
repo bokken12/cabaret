@@ -30,7 +30,7 @@ use gix::{
     status::{UntrackedFiles, index_worktree::Item, tree_index::TrackRenames},
 };
 
-use crate::{branch::Branch, context::TransactionContext, tree};
+use crate::{branch::Branch, transaction::Transaction, tree};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Head {
@@ -51,7 +51,7 @@ impl Head {
 /// state of their own: they follow `head`, and are only ever written through a transaction.
 #[derive(Clone)]
 pub struct Workspace<'txn> {
-    txn: &'txn TransactionContext<'txn>,
+    txn: &'txn Transaction<'txn>,
     id: WorkspaceId,
     path: PathBuf,
     pub head: Head,
@@ -77,11 +77,11 @@ pub enum Status {
 
 impl<'txn> Workspace<'txn> {
     /// A workspace that does not exist yet, to be made at `path` by [`Self::create`].
-    pub fn new(txn: &'txn TransactionContext<'txn>, path: &Path, head: Head) -> Result<Self> {
+    pub fn new(txn: &'txn Transaction<'txn>, path: &Path, head: Head) -> Result<Self> {
         Ok(Self { txn, id: WorkspaceId::linked_at(path)?, path: path.to_owned(), head, drop_local_changes: false })
     }
 
-    pub fn load(txn: &'txn TransactionContext<'txn>, id: WorkspaceIdRef<'_>) -> Result<Self> {
+    pub fn load(txn: &'txn Transaction<'txn>, id: WorkspaceIdRef<'_>) -> Result<Self> {
         let repo = open(&txn.repo, id)?;
         let head = match repo.head_name()? {
             Some(name) => Head::Change(name.shorten().to_str()?.parse()?),
@@ -367,7 +367,7 @@ impl<'txn> Workspace<'txn> {
     }
 }
 
-impl TransactionContext<'_> {
+impl Transaction<'_> {
     /// Every workspace: the main one unless the repository is bare, then each linked worktree.
     pub fn workspaces(&self) -> Result<Vec<WorkspaceId>> {
         let mut workspaces = Vec::new();

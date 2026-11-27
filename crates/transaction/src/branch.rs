@@ -12,25 +12,25 @@ use gix::{
 };
 use nonempty_collections::NEBTreeSet;
 
-use crate::{context::TransactionContext, tree};
+use crate::{transaction::Transaction, tree};
 
 #[derive(Clone, Debug)]
 pub struct Branch<'txn> {
-    txn: &'txn TransactionContext<'txn>,
+    txn: &'txn Transaction<'txn>,
     id: ChangeId,
     /// The revision the branch points at.
     pub tip: RevisionId,
 }
 
 impl<'txn> Branch<'txn> {
-    pub fn new(txn: &'txn TransactionContext<'txn>, id: ChangeId, tip: RevisionId) -> Self { Self { txn, id, tip } }
+    pub fn new(txn: &'txn Transaction<'txn>, id: ChangeId, tip: RevisionId) -> Self { Self { txn, id, tip } }
 
-    pub fn load(txn: &'txn TransactionContext<'txn>, id: &ChangeIdRef) -> Result<Self> {
+    pub fn load(txn: &'txn Transaction<'txn>, id: &ChangeIdRef) -> Result<Self> {
         let tip = RevisionId(txn.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
         Ok(Self::new(txn, id.to_owned(), tip))
     }
 
-    pub fn txn(&self) -> &'txn TransactionContext<'txn> { self.txn }
+    pub fn txn(&self) -> &'txn Transaction<'txn> { self.txn }
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 

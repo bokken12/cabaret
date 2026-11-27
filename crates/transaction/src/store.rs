@@ -18,8 +18,8 @@ use gix::{
 
 use crate::{
     branch::Branch,
-    context::TransactionContext,
     metadata::Metadata,
+    transaction::Transaction,
     workspace::{Head, Workspace},
 };
 
@@ -41,7 +41,7 @@ impl<'a> BranchOp<'a> {
     /// The branch before the transaction: as committed, or at `tip` for an insert. An insert
     /// refuses an id whose branch exists: gix's `MustNotExist` lets a ref be rewritten to the
     /// value it already has, which would pass creating a change twice off as a success.
-    fn before<'txn>(&self, txn: &'txn TransactionContext<'txn>) -> Result<Branch<'txn>> {
+    fn before<'txn>(&self, txn: &'txn Transaction<'txn>) -> Result<Branch<'txn>> {
         Ok(match self {
             BranchOp::Update(id) => txn.branch(id)?.clone(),
             BranchOp::Insert { id, tip } => {
@@ -68,7 +68,7 @@ impl WorkspaceOp<'_> {
     }
 
     /// The workspace before the transaction: as committed, or not yet made for an insert.
-    fn before<'txn>(&self, txn: &'txn TransactionContext<'txn>) -> Result<Workspace<'txn>> {
+    fn before<'txn>(&self, txn: &'txn Transaction<'txn>) -> Result<Workspace<'txn>> {
         Ok(match self {
             WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => txn.workspace(*id)?.clone(),
             WorkspaceOp::Insert { path, head } => Workspace::new(txn, path, head.clone())?,
@@ -98,7 +98,7 @@ fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<Re
 }
 
 /// The revision `head` was at as committed.
-fn committed_tip<'txn>(txn: &'txn TransactionContext<'txn>, head: &Head) -> Result<RevisionId> {
+fn committed_tip<'txn>(txn: &'txn Transaction<'txn>, head: &Head) -> Result<RevisionId> {
     match head {
         Head::Detached(revision) => Ok(*revision),
         Head::Change(id) => Ok(txn.branch(id)?.tip),
@@ -190,7 +190,7 @@ impl Store {
     ) -> Result<T>
     where
         F: for<'txn> FnOnce(
-            &'txn TransactionContext<'txn>,
+            &'txn Transaction<'txn>,
             &mut [Metadata<'txn>],
             &mut [Branch<'txn>],
             &mut [Workspace<'txn>],
@@ -203,7 +203,7 @@ impl Store {
         let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
         locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
         // TODO(joel): retry on ref contention instead of surfacing it
-        let txn = TransactionContext::new(self.repo.to_thread_local(), locks, allow);
+        let txn = Transaction::new(self.repo.to_thread_local(), locks, allow);
 
         // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
@@ -303,7 +303,7 @@ impl Store {
     ) -> Result<T>
     where
         F: for<'txn> FnOnce(
-            &'txn TransactionContext<'txn>,
+            &'txn Transaction<'txn>,
             &mut [Metadata<'txn>; L],
             &mut [Branch<'txn>; M],
             &mut [Workspace<'txn>; N],
@@ -327,7 +327,7 @@ impl Store {
 
     pub fn query<T, F>(&self, f: F) -> Result<T>
     where
-        F: for<'txn> FnOnce(&'txn TransactionContext<'txn>) -> Result<T>,
+        F: for<'txn> FnOnce(&'txn Transaction<'txn>) -> Result<T>,
     {
         self.transact(&BTreeSet::new(), &[], &[], &[], |txn, [], [], []| f(txn))
     }
@@ -338,11 +338,8 @@ impl Store {
     /// so no in-flight metadata can express it.
     pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
         let allow = BTreeSet::new();
-        let txn = TransactionContext::new(
-            self.repo.to_thread_local(),
-            self.lock(Resource::Metadata, [id].into_iter())?,
-            &allow,
-        );
+        let txn =
+            Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
         if let Some(edit) = txn.metadata(id)?.merge_origin()? {
             txn.repo.edit_reference(edit)?;
         }
@@ -351,7 +348,7 @@ impl Store {
 
     pub fn update_metadata<T, F>(&self, allow: &BTreeSet<SafeguardKind>, id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: for<'txn> FnOnce(&'txn TransactionContext<'txn>, &mut Metadata<'txn>) -> Result<T>,
+        F: for<'txn> FnOnce(&'txn Transaction<'txn>, &mut Metadata<'txn>) -> Result<T>,
     {
         self.transact(allow, &[id], &[], &[], |txn, [metadata], [], []| f(txn, metadata))
     }
