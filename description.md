@@ -1,1 +1,1 @@
-Tests that a log commit with no parents folds at its own commit time however late a log joins it, and that writes made after joining it fold after it. Forge sync will import each forge event as such a commit, timed by the forge, so that every importer writes the same one.
+Tests that a log commit with no parents folds among the writes that did not see it, and that writes made after joining it fold after it. Forge sync will import each forge event as such a commit.
