@@ -173,6 +173,12 @@ impl<'txn> Metadata<'txn> {
     /// The commit this state was read from; `None` before the change's first write.
     pub fn commit(&self) -> Option<ObjectId> { self.commit }
 
+    /// The tip `reviewer` last marked each file reviewed at; empty for one who never marked any.
+    pub fn reviewed(&self, reviewer: &Identity) -> &BTreeMap<RepoPath, RevisionId> {
+        static NONE: BTreeMap<RepoPath, RevisionId> = BTreeMap::new();
+        self.review.get(reviewer).unwrap_or(&NONE)
+    }
+
     /// Owners who have not endorsed the change, since every owner is to approve it before it lands.
     pub fn unendorsed(&self) -> BTreeSet<Identity> { self.owners.difference(&self.endorsers).cloned().collect() }
 

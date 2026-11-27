@@ -163,8 +163,7 @@ impl Cabaret {
     pub fn review_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         self.store.query(|txn| {
             let metadata = txn.metadata(change_id)?;
-            let review = metadata.review.get(&txn.identity()?).cloned().unwrap_or_default();
-            txn.branch(change_id)?.review_files(&metadata.parents, &review, pathspecs)
+            txn.branch(change_id)?.review_files(&metadata.parents, metadata.reviewed(&txn.identity()?), pathspecs)
         })
     }
 
@@ -237,10 +236,10 @@ impl Cabaret {
                         .collect()
                 }
                 DiffView::Review => {
-                    let review = metadata.review.get(&txn.identity()?).cloned().unwrap_or_default();
+                    let review = metadata.reviewed(&txn.identity()?);
                     let mut bases = BTreeMap::new();
                     let mut files = Vec::new();
-                    for file in branch.review_files(parents, &review, pathspecs)? {
+                    for file in branch.review_files(parents, review, pathspecs)? {
                         let reviewed = review.get(file.path()).copied();
                         let base = match bases.get(&reviewed) {
                             Some(&base) => base,
@@ -704,8 +703,7 @@ impl Cabaret {
     pub fn endorse(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
         self.store.update_metadata(allow, change_id, |txn, metadata| {
             let you = txn.identity()?;
-            let review = metadata.review.get(&you).cloned().unwrap_or_default();
-            if !txn.branch(change_id)?.review_files(&metadata.parents, &review, &[])?.is_empty() {
+            if !txn.branch(change_id)?.review_files(&metadata.parents, metadata.reviewed(&you), &[])?.is_empty() {
                 txn.check(Safeguard::Unreviewed { reviewers: NEBTreeSet::new(you.clone()) });
             }
             metadata.endorsers.insert(you);
@@ -809,8 +807,7 @@ impl Cabaret {
                 if metadata.reviewing == Reviewing::None {
                     continue;
                 }
-                let review = metadata.review.get(viewer).cloned().unwrap_or_default();
-                if !txn.branch(id)?.review_files(&metadata.parents, &review, &[])?.is_empty() {
+                if !txn.branch(id)?.review_files(&metadata.parents, metadata.reviewed(viewer), &[])?.is_empty() {
                     to_review.insert(id.clone());
                 }
             }
@@ -921,8 +918,7 @@ fn unreviewed(
 ) -> Result<BTreeSet<Identity>> {
     let mut reviewers = BTreeSet::new();
     for owner in &metadata.owners {
-        let review = metadata.review.get(owner).cloned().unwrap_or_default();
-        if !branch.review_files(parents, &review, &[])?.is_empty() {
+        if !branch.review_files(parents, metadata.reviewed(owner), &[])?.is_empty() {
             reviewers.insert(owner.clone());
         }
     }
