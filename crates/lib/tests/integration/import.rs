@@ -48,15 +48,29 @@ fn joins_events_to_log_keeping_description() {
 }
 
 #[test]
-fn event_is_same_commit_on_every_device() {
-    let commits: Vec<_> = [child(), child()]
-        .iter()
+fn event_is_same_commit_whatever_log_imports_it() {
+    let event = renamed("renamed-2", 30, "Renamed");
+    let fresh = child();
+    let written = child();
+    written.cabaret.set_title(&id("child"), Some("Titled here".into())).unwrap();
+    written.cabaret.import_forge_events(&id("child"), &[renamed("renamed-1", 20, "Renamed before")]).unwrap();
+    let plain = Fixture::new();
+    plain.root("main", &[]);
+    plain.branch("child", "main");
+
+    let imported: Vec<_> = [&fresh, &written, &plain]
+        .into_iter()
         .map(|fixture| {
-            fixture.cabaret.import_forge_events(&id("child"), &[renamed("renamed-1", 20, "Renamed")]).unwrap();
-            fixture.parents(fixture.log_head("child"))[1]
+            fixture.cabaret.import_forge_events(&id("child"), std::slice::from_ref(&event)).unwrap();
+            let head = fixture.log_head("child");
+            (*fixture.parents(head).last().unwrap(), head)
         })
         .collect();
-    assert_eq!(commits[0], commits[1]);
+    let [(fresh_event, fresh_join), (written_event, written_join), (plain_event, plain_join)] = imported[..] else {
+        panic!("three logs imported")
+    };
+    assert_eq!((fresh_event, fresh_event), (written_event, plain_event));
+    assert!(fresh_join != written_join && written_join != plain_join && fresh_join != plain_join);
 }
 
 #[test]
