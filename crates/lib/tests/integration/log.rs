@@ -109,3 +109,38 @@ fn edits_already_in_effect_write_nothing() {
     fixture.cabaret.archive(&child, &allow).unwrap();
     assert_eq!(fixture.log_head("child"), archived);
 }
+
+/// A log of one write taking no actions, so that tests choose every later commit's time.
+fn started() -> (Fixture, RevisionId) {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    let start = fixture.log_commit(&[], 0, &[]);
+    fixture.move_log("main", start);
+    (fixture, start)
+}
+
+#[test]
+fn parentless_write_folds_at_own_time_whenever_joined() {
+    let (fixture, start) = started();
+    let fact = fixture.log_commit(&[], 20, &[title("fact")]);
+    let before = fixture.log_commit(&[start], 10, &[title("before")]);
+    let after = fixture.log_commit(&[start], 30, &[title("after")]);
+    let titles: Vec<_> = [(before, 15), (before, 40), (after, 25), (after, 40)]
+        .into_iter()
+        .map(|(local, joined)| {
+            fixture.move_log("main", fixture.log_commit(&[local, fact], joined, &[]));
+            fixture.snapshot("main").title
+        })
+        .collect();
+    expect![[r#"[Some("fact"), Some("fact"), Some("after"), Some("after")]"#]].assert_eq(&format!("{titles:?}"));
+}
+
+#[test]
+fn write_folds_after_parentless_write_it_joined_whatever_its_clock() {
+    let (fixture, start) = started();
+    let fact = fixture.log_commit(&[], 20, &[title("fact")]);
+    let joined = fixture.log_commit(&[start, fact], 5, &[]);
+    fixture.move_log("main", fixture.log_commit(&[joined], 10, &[title("written on a clock running behind")]));
+    expect![[r#"Some("written on a clock running behind")"#]]
+        .assert_eq(&format!("{:?}", fixture.snapshot("main").title));
+}
