@@ -1,0 +1,3 @@
+Lock the branch a workspace holds when removing or switching it
+
+The transaction refuses to touch a workspace whose held branch is not declared, but workspace_remove and workspace_switch never declared it, so every remove or switch of a workspace holding a change failed with "<change> must be declared to touch workspace <workspace>". This broke VS Code's Land and Delete Workspace. Both now read the held change before locking and declare its branch; the transaction re-checks it under the lock. The main-workspace refusal moves ahead of the transaction so it no longer trips the same check.
