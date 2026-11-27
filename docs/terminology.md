@@ -45,7 +45,7 @@ To me "approve" seems like the clearest here, although maybe "second" emphasizes
 
 "approve" would be the cleanest map onto GitHub, but I don't really like the implication. To "approve" feels passive, as if you might be only so-so about it, which is more like what I want for regular reviewers.
 
-Tentative: I'm going to call this "approve". If this turns out badly, my second choice is "endorse".
+Tentative: I'm going to call this "endorse" because "a" for "approve" already means "archive".
 
 ## Requirements
 
