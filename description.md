@@ -1,0 +1,1 @@
+Importing forge events into a change's log: each event not yet held becomes a commit written from nothing but the event, authored and timed by the forge, so every device writes the same one; a commit taking no actions joins them to the log, keeping its description. Importing events already held writes nothing. Nothing reads a forge yet, so only tests call it.
