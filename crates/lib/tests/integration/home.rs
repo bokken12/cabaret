@@ -34,18 +34,43 @@ fn owned_changes_plus_open_ancestors_as_context() {
 }
 
 #[test]
-fn archived_changes_are_never_drawn_as_context() {
+fn landed_parent_stays_above_children_until_they_are_fixed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("base", "main", &alice());
-    fixture.create("top", "base", &alice());
-    fixture.archive("base");
+    fixture.commit("base", &[("base.txt", "base\n")]);
+    fixture.create("left", "base", &alice());
+    fixture.create("right", "base", &alice());
+    fixture.mark_all("base");
+    fixture.endorse("base");
+    fixture.cabaret.land(&id("base"), &BTreeSet::new()).unwrap();
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
 
         Owned
-        ○   top
+        ◌   base (archived)
+        ├─○   left
+        ╰─○   right
+
+        Workspaces
+        ○   main
+    "#]]
+    .assert_eq(&home(&fixture));
+    let next_step = |change: &str| {
+        let page = fixture.cabaret.show_page(&id(change)).unwrap().to_string();
+        page.lines().find(|line| line.starts_with("Next step: ")).unwrap().to_owned()
+    };
+    expect!["Next step: fix parents"].assert_eq(&next_step("left"));
+    fixture.cabaret.fix_parents(&id("left")).unwrap();
+    expect![[r#"
+        Review
+        nothing awaiting review by alice@example.com
+
+        Owned
+        ◌   base (archived)
+        ╰─○   right
+        ○   left
 
         Workspaces
         ○   main
@@ -78,7 +103,7 @@ fn workspaces_section_shows_checked_out_changes_with_context() {
     .assert_eq(&home(&fixture));
 }
 
-/// An archived change hangs off what it landed into; an open change hangs past an archived parent.
+/// An archived change hangs off what it landed into.
 #[test]
 fn workspaces_section_keeps_archived_changes() {
     let fixture = Fixture::new();
@@ -93,11 +118,12 @@ fn workspaces_section_keeps_archived_changes() {
         nothing awaiting review by alice@example.com
 
         Owned
-        ○   after-done
+        ◌   done (archived)
+        ╰─○   after-done
 
         Workspaces
-        ○   after-done
-        ○   done
+        ○   done (archived)
+        ╰─○   after-done
     "#]]
     .assert_eq(&home(&fixture));
 }

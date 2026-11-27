@@ -35,7 +35,7 @@ impl<'txn> Branch<'txn> {
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
-    /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
+    /// changes it lands into (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
     /// keeping only the maximal ones. A root is its own base, so presents no diff.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<NEBTreeSet<RevisionId>> {
         let txn = self.txn;

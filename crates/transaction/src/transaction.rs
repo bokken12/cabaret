@@ -68,6 +68,16 @@ impl<'txn> Transaction<'txn> {
         Ok(())
     }
 
+    /// Parents in need of fixing make for a base and a landing target the change does not mean.
+    pub fn check_parents_fixed(&'txn self, change_id: &ChangeIdRef) -> Result<()> {
+        let metadata = self.metadata(change_id)?;
+        let fixed = metadata.fixed_parents()?;
+        if fixed != metadata.parents {
+            self.check(Safeguard::UnfixedParents { fixed });
+        }
+        Ok(())
+    }
+
     pub fn confirm(&self) -> Result<()> {
         let refused = self.violated_safeguards.iter().cloned().collect();
         if let Some(refused) = NEVec::try_from_vec(refused) {
@@ -122,7 +132,7 @@ impl<'txn> Transaction<'txn> {
         let mut frontier = vec![change_id.to_owned()];
         while let Some(id) = frontier.pop() {
             if ancestors.insert(id.clone()) {
-                frontier.extend(self.metadata(&id)?.parents()?);
+                frontier.extend(self.metadata(&id)?.parents.iter().cloned());
             }
         }
         Ok(ancestors)
@@ -190,10 +200,9 @@ impl<'txn> Transaction<'txn> {
 
     pub fn snapshot(&'txn self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         let (metadata, branch) = (self.metadata(change_id)?, self.branch(change_id)?);
-        let parents = metadata.parents()?;
         Ok(ChangeSnapshot {
             tip: branch.tip,
-            bases: branch.bases(&parents)?.into(),
+            bases: branch.bases(&metadata.parents)?.into(),
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             archived: metadata.archived,
@@ -201,8 +210,7 @@ impl<'txn> Transaction<'txn> {
             reviewing: metadata.reviewing,
             owners: metadata.owners.clone(),
             endorsers: metadata.endorsers.clone(),
-            parents,
-            declared_parents: metadata.parents.clone(),
+            parents: metadata.parents.clone(),
             review: metadata.review.clone(),
             workspace: branch.workspace()?,
         })

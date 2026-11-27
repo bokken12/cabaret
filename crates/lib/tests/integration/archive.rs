@@ -41,7 +41,7 @@ fn open_children_refuse_unless_allowed() {
     expect!["refused: child still lands into it"].assert_eq(&archive(&fixture, "parent", &BTreeSet::new()));
     let allow = BTreeSet::from([SafeguardKind::OpenChildren]);
     expect!["done"].assert_eq(&archive(&fixture, "parent", &allow));
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]

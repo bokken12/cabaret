@@ -54,6 +54,8 @@ pub enum Safeguard {
     Uncommitted { workspace: WorkspaceId },
     /// Owners have not endorsed the change, so it is not ready to land.
     Unendorsed { owners: NEBTreeSet<Identity> },
+    /// Fixing the parents would change them: some are archived, or already an ancestor of another.
+    UnfixedParents { fixed: BTreeSet<ChangeId> },
     /// Review obligations have not been satisfied, so it is not ready to land.
     Unreviewed { reviewers: NEBTreeSet<Identity> },
 }
@@ -99,13 +101,17 @@ impl fmt::Display for Safeguard {
             }
             Self::Permanent => f.write_str("it is permanent"),
             Self::RedundantParent { parent, descendant } => {
-                write!(f, "{parent} is already an ancestor of {descendant}, so it would be skipped")
+                write!(f, "{parent} is already an ancestor of {descendant}")
             }
             Self::RemovesOthers { owners } => write!(f, "{} would no longer own it", joined(owners)),
             Self::Uncommitted { workspace } => write!(f, "workspace {workspace} has uncommitted changes"),
             Self::Unendorsed { owners } => {
                 write!(f, "not all owners have endorsed (remaining: {})", joined(owners))
             }
+            Self::UnfixedParents { fixed } => match fixed.is_empty() {
+                true => f.write_str("its parents need fixing, to none"),
+                false => write!(f, "its parents need fixing, to {}", joined(fixed)),
+            },
             Self::Unreviewed { reviewers } => {
                 write!(f, "not all review obligations have been fulfilled (remaining: {})", joined(reviewers))
             }

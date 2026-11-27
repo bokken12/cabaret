@@ -15,6 +15,8 @@ use crate::{file_tree::FileTree, home::HomeSection};
 pub enum NextStep {
     /// Its tip adds nothing to its base, so there is nothing to land.
     AddCode,
+    /// Some parents are archived, or already an ancestor of another.
+    FixParents,
     /// Files its tip holds conflict markers in; they are resolved before anything more is merged.
     ResolveConflicts {
         files: NEBTreeSet<RepoPath>,
@@ -387,6 +389,7 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
     let Some(step) = step else { return list("Next step:", std::iter::empty()) };
     let (key, text, changes) = match step {
         NextStep::AddCode => (None, "add code".to_owned(), BTreeSet::new()),
+        NextStep::FixParents => (None, "fix parents".to_owned(), BTreeSet::new()),
         NextStep::ResolveConflicts { files } => {
             (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
         }

@@ -28,7 +28,7 @@ fn scene_next_steps_up_for_review() {
         advanced-parent: [r] review by alice@example.com
         archived: (none)
         behind-child: [!r] rebase onto advanced-parent
-        child-of-archived: [r] review by alice@example.com
+        child-of-archived: fix parents
         co-owned: [r] review by alice@example.com, bob@example.com
         described: [r] review by alice@example.com
         empty: add code
@@ -123,6 +123,15 @@ fn conflict_between_parents_is_resolved_in_their_join() {
     fixture.commit("right", &[("file.txt", "right\n")]);
     fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice(), &BTreeSet::new()).unwrap();
     expect!["resolve conflicts in file.txt"].assert_eq(&next_step(&fixture, "join"));
+}
+
+#[test]
+fn unfixed_parents_are_fixed_first() {
+    let fixture = conflicted();
+    fixture.archive("child");
+    expect!["fix parents"].assert_eq(&next_step(&fixture, "grandchild"));
+    fixture.cabaret.fix_parents(&id("grandchild")).unwrap();
+    expect!["[!r] rebase onto main"].assert_eq(&next_step(&fixture, "grandchild"));
 }
 
 #[test]

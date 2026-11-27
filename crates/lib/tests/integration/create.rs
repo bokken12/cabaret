@@ -52,7 +52,7 @@ fn creating_child_of_archived_change_refuses_unless_allowed() {
     expect![[r#"["done", "main"]"#]].assert_eq(&format!("{:?}", fixture.cabaret.changes().unwrap()));
     let allow = BTreeSet::from([SafeguardKind::ArchivedParents]);
     fixture.cabaret.create("child", &nebts![id("done")], &alice(), &allow).unwrap();
-    expect![[r#"{"done"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+    expect![[r#"{"done"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn creating_a_parent_with_an_existing_id_is_refused() {
     fixture.create("sibling", "main", &alice());
     let error = fixture.cabaret.create_parent("sibling", &id("child"), &alice(), &BTreeSet::new()).unwrap_err();
     expect!["sibling already exists"].assert_eq(&format!("{error:?}"));
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn prefix_goes_on_created_parent() {
             "alice/parent",
         }
     "#]]
-    .assert_debug_eq(&fixture.snapshot("child").declared_parents);
+    .assert_debug_eq(&fixture.snapshot("child").parents);
 }
 
 #[test]

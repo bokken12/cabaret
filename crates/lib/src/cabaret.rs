@@ -116,8 +116,8 @@ impl Cabaret {
         self.store.query(|txn| txn.snapshot(change_id))
     }
 
-    /// The open changes targeting `change_id`, the inverse of `ChangeSnapshot::parents`. Archived
-    /// changes are left out: every landed change targets trunk forever.
+    /// The open changes with `change_id` as a parent, the inverse of `ChangeSnapshot::parents`.
+    /// Archived changes are left out: every landed change keeps what it landed into forever.
     pub fn children(&self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
         self.store.query(|txn| open_children(txn, change_id))
     }
@@ -127,11 +127,11 @@ impl Cabaret {
     }
 
     pub fn base(&self, change_id: &ChangeIdRef) -> Result<RevisionId> {
-        self.store.query(|txn| txn.branch(change_id)?.base(&txn.metadata(change_id)?.parents()?))
+        self.store.query(|txn| txn.branch(change_id)?.base(&txn.metadata(change_id)?.parents))
     }
 
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
-        self.store.query(|txn| txn.branch(change_id)?.changed_files(&txn.metadata(change_id)?.parents()?, pathspecs))
+        self.store.query(|txn| txn.branch(change_id)?.changed_files(&txn.metadata(change_id)?.parents, pathspecs))
     }
 
     /// The page `route` names, as this repository's identity sees it. A change's pages carry its
@@ -164,7 +164,7 @@ impl Cabaret {
         self.store.query(|txn| {
             let metadata = txn.metadata(change_id)?;
             let review = metadata.review.get(&txn.identity()?).cloned().unwrap_or_default();
-            txn.branch(change_id)?.review_files(&metadata.parents()?, &review, pathspecs)
+            txn.branch(change_id)?.review_files(&metadata.parents, &review, pathspecs)
         })
     }
 
@@ -225,13 +225,13 @@ impl Cabaret {
         };
         self.store.query(|txn| {
             let (metadata, branch) = (txn.metadata(change_id)?, txn.branch(change_id)?);
-            let parents = metadata.parents()?;
+            let parents = &metadata.parents;
             let tip = branch.tip;
             let files = match view {
                 DiffView::Diff => {
-                    let base = branch.base(&parents)?;
+                    let base = branch.base(parents)?;
                     branch
-                        .changed_files(&parents, pathspecs)?
+                        .changed_files(parents, pathspecs)?
                         .into_iter()
                         .map(|file| FileDiff::new(file, base, tip))
                         .collect()
@@ -240,11 +240,11 @@ impl Cabaret {
                     let review = metadata.review.get(&txn.identity()?).cloned().unwrap_or_default();
                     let mut bases = BTreeMap::new();
                     let mut files = Vec::new();
-                    for file in branch.review_files(&parents, &review, pathspecs)? {
+                    for file in branch.review_files(parents, &review, pathspecs)? {
                         let reviewed = review.get(file.path()).copied();
                         let base = match bases.get(&reviewed) {
                             Some(&base) => base,
-                            None => *bases.entry(reviewed).or_insert(branch.review_base(&parents, reviewed)?),
+                            None => *bases.entry(reviewed).or_insert(branch.review_base(parents, reviewed)?),
                         };
                         files.push(FileDiff::new(file, base, tip));
                     }
@@ -364,9 +364,9 @@ impl Cabaret {
             }
             let mut committed = branch.clone();
             committed.tip = txn.commit(tree, vec![branch.tip], change_id.as_bstr())?;
-            let parents = txn.metadata(change_id)?.parents()?;
-            let before = branch.conflicted_files(&parents)?;
-            let added = committed.conflicted_files(&parents)?.difference(&before).cloned().collect();
+            let parents = &txn.metadata(change_id)?.parents;
+            let before = branch.conflicted_files(parents)?;
+            let added = committed.conflicted_files(parents)?.difference(&before).cloned().collect();
             if let Some(files) = NEBTreeSet::try_from_set(added) {
                 txn.check(Safeguard::Conflicted { files });
             }
@@ -397,6 +397,8 @@ impl Cabaret {
     /// parent. Conflicts landing in a root are errors, since a root is never searched for them:
     /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
     /// allowing them cannot run into an error.
+    // TODO-someday(joel): an option, perhaps the default, to fix the parents of the landed
+    // change's children, which are otherwise each left to fix their own.
     pub fn land(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<ChangeId> {
         let parent_id = self.store.query(|txn| landing_parent(txn, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
@@ -405,18 +407,19 @@ impl Cabaret {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            let parents = child.parents()?;
+            let parents = &child.parents;
             let merged = parent.merge(child_branch, "land")?;
             let conflicts: BTreeSet<RepoPath> =
-                child_branch.conflicted_files(&parents)?.into_iter().chain(merged.iter().flatten().cloned()).collect();
+                child_branch.conflicted_files(parents)?.into_iter().chain(merged.iter().flatten().cloned()).collect();
             let parent_metadata = txn.metadata(&parent_id)?;
-            let grandparents = parent_metadata.parents()?;
+            let grandparents = &parent_metadata.parents;
             if !conflicts.is_empty() && grandparents.is_empty() {
                 Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
             }
 
             txn.check_owner(change_id)?;
-            if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(child, child_branch, &parents)?) {
+            txn.check_parents_fixed(change_id)?;
+            if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(child, child_branch, parents)?) {
                 txn.check(Safeguard::Unreviewed { reviewers });
             }
             if let Some(owners) = NEBTreeSet::try_from_set(child.unendorsed()) {
@@ -425,7 +428,7 @@ impl Cabaret {
             // A root has no diff of its own to review.
             if !grandparents.is_empty()
                 && let Some(reviewers) =
-                    NEBTreeSet::try_from_set(unreviewed(parent_metadata, txn.branch(&parent_id)?, &grandparents)?)
+                    NEBTreeSet::try_from_set(unreviewed(parent_metadata, txn.branch(&parent_id)?, grandparents)?)
             {
                 txn.check(Safeguard::ParentUnreviewed { parent: parent_id.clone(), reviewers });
             }
@@ -461,7 +464,8 @@ impl Cabaret {
             let metadata = txn.metadata(change_id)?;
             let targets = rebase_targets(metadata, onto)?;
             txn.check_owner(change_id)?;
-            if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
+            txn.check_parents_fixed(change_id)?;
+            if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents)?) {
                 txn.check(Safeguard::Conflicted { files });
             }
             for target in &targets {
@@ -470,8 +474,7 @@ impl Cabaret {
                 if txn.is_predecessor(parent.tip, branch.tip)? {
                     continue;
                 }
-                if let Some(files) =
-                    NEBTreeSet::try_from_set(parent.conflicted_files(&txn.metadata(target)?.parents()?)?)
+                if let Some(files) = NEBTreeSet::try_from_set(parent.conflicted_files(&txn.metadata(target)?.parents)?)
                 {
                     txn.check(Safeguard::ParentConflicted { parent: target.clone(), files });
                 }
@@ -620,16 +623,15 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
         self.store.update_metadata(allow, change_id, |txn, metadata| {
-            let before = metadata.parents()?;
+            let branch = txn.branch(change_id)?;
+            let before = branch.base(&metadata.parents)?;
             if !metadata.parents.remove(parent_id) {
                 return Ok(());
             }
-            let after = metadata.parents()?;
-            let branch = txn.branch(change_id)?;
-            if branch.base(&before)? != branch.base(&after)? {
+            if branch.base(&metadata.parents)? != before {
                 txn.check(Safeguard::BaseMoves { removed: parent_id.to_owned() });
             }
-            if after.is_empty() {
+            if metadata.parents.is_empty() {
                 txn.check(Safeguard::Parentless);
             }
             if let Some(safeguard) = no_common_ancestor(metadata)? {
@@ -639,10 +641,13 @@ impl Cabaret {
         })
     }
 
-    /// Declare the parents `change_id` targets, see `Metadata::parents`, as its parents.
+    /// Replace `change_id`'s archived parents with their own and drop those already an ancestor
+    /// of another, see `Metadata::fixed_parents`.
+    // TODO-someday(joel): refuse with `BaseMoves` when a replaced parent was archived without
+    // landing, so that fixing takes its work into the diff.
     pub fn fix_parents(&self, change_id: &ChangeIdRef) -> Result<()> {
         self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata| {
-            metadata.parents = metadata.parents()?;
+            metadata.parents = metadata.fixed_parents()?;
             Ok(())
         })
     }
@@ -660,7 +665,7 @@ impl Cabaret {
         self.store.update_metadata(&BTreeSet::new(), change_id, |txn, metadata| {
             let branch = txn.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
-            let parents = metadata.parents()?;
+            let parents = metadata.parents.clone();
             let review = metadata.review.entry(txn.identity()?).or_default();
             let left = branch.review_files(&parents, review, &[])?;
             let mut files = BTreeSet::new();
@@ -694,7 +699,7 @@ impl Cabaret {
         self.store.update_metadata(allow, change_id, |txn, metadata| {
             let you = txn.identity()?;
             let review = metadata.review.get(&you).cloned().unwrap_or_default();
-            if !txn.branch(change_id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
+            if !txn.branch(change_id)?.review_files(&metadata.parents, &review, &[])?.is_empty() {
                 txn.check(Safeguard::Unreviewed { reviewers: NEBTreeSet::new(you.clone()) });
             }
             metadata.endorsers.insert(you);
@@ -741,11 +746,11 @@ impl Cabaret {
             txn.check_owner(change_id)?;
             if permanent {
                 let mut impermanent = BTreeSet::new();
-                for parent_id in metadata.parents()? {
-                    let parent = txn.metadata(&parent_id)?;
+                for parent_id in &metadata.parents {
+                    let parent = txn.metadata(parent_id)?;
                     // A root never lands, so is as permanent as a change gets.
-                    if !parent.permanent && !parent.parents()?.is_empty() {
-                        impermanent.insert(parent_id);
+                    if !parent.permanent && !parent.parents.is_empty() {
+                        impermanent.insert(parent_id.clone());
                     }
                 }
                 if let Some(parents) = NEBTreeSet::try_from_set(impermanent) {
@@ -799,7 +804,7 @@ impl Cabaret {
                     continue;
                 }
                 let review = metadata.review.get(viewer).cloned().unwrap_or_default();
-                if !txn.branch(id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
+                if !txn.branch(id)?.review_files(&metadata.parents, &review, &[])?.is_empty() {
                     to_review.insert(id.clone());
                 }
             }
@@ -810,9 +815,9 @@ impl Cabaret {
             }
             Ok(Home {
                 viewer: viewer.clone(),
-                review: home_graph(&changes, &to_review, &trunk)?,
-                owned: home_graph(&changes, &owned, &trunk)?,
-                workspaces: home_graph(&changes, &checked_out, &trunk)?,
+                review: home_graph(&changes, &to_review, &trunk),
+                owned: home_graph(&changes, &owned, &trunk),
+                workspaces: home_graph(&changes, &checked_out, &trunk),
             })
         })
     }
@@ -853,9 +858,12 @@ fn next_step<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Res
     if metadata.archived {
         return Ok(None);
     }
-    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
+    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents.clone()) else { return Ok(None) };
 
     // Fix broken states if present
+    if metadata.fixed_parents()? != metadata.parents {
+        return Ok(Some(NextStep::FixParents));
+    }
     let branch = txn.branch(change_id)?;
     if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(parents.as_ref())?) {
         return Ok(Some(NextStep::ResolveConflicts { files }));
@@ -868,7 +876,7 @@ fn next_step<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Res
     }
     let mut conflicted = BTreeSet::new();
     for parent in &stale {
-        if !txn.branch(parent)?.conflicted_files(&txn.metadata(parent)?.parents()?)?.is_empty() {
+        if !txn.branch(parent)?.conflicted_files(&txn.metadata(parent)?.parents)?.is_empty() {
             conflicted.insert(parent.clone());
         }
     }
@@ -920,7 +928,7 @@ fn open_children<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) ->
     let mut children = BTreeSet::new();
     for id in txn.changes()? {
         let metadata = txn.metadata(&id)?;
-        if !metadata.archived && metadata.parents()?.contains(change_id) {
+        if !metadata.archived && metadata.parents.contains(change_id) {
             children.insert(id);
         }
     }
@@ -929,7 +937,7 @@ fn open_children<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) ->
 
 /// The one parent `change_id` lands into.
 fn landing_parent<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -> Result<ChangeId> {
-    match txn.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
+    match txn.metadata(change_id)?.parents.iter().collect::<Vec<_>>().as_slice() {
         [] => Err(format!("{change_id} cannot land while it has no parents"))?,
         [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
         [parent] => Ok((*parent).clone()),
@@ -938,7 +946,7 @@ fn landing_parent<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -
 
 /// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.
 fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
-    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
+    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents.clone()) else { return Ok(None) };
     let mut common: Option<BTreeSet<ChangeId>> = None;
     for parent in &parents {
         let ancestors = metadata.txn().ancestors(parent)?;
@@ -953,24 +961,23 @@ fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
 /// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.
 fn rebase_targets(metadata: &Metadata<'_>, onto: Option<&ChangeIdRef>) -> Result<BTreeSet<ChangeId>> {
     let change_id = metadata.id();
-    let parents = metadata.parents()?;
+    let parents = &metadata.parents;
     Ok(match onto {
         None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
-        None => parents,
+        None => parents.clone(),
         Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
         Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
     })
 }
 
-/// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an
-/// open change hangs past an archived parent even when that parent is drawn; an archived change
-/// hangs off what it landed into. Trunk is drawn only when selected: as mere context it would
-/// root every stack, saying nothing.
+/// `selected` and their ancestors within `changes`; an archived change hangs off what it landed
+/// into. Trunk is drawn only when selected: as mere context it would root every stack, saying
+/// nothing.
 fn home_graph(
     changes: &BTreeMap<ChangeId, &Metadata<'_>>,
     selected: &BTreeSet<ChangeId>,
     trunk: &ChangeId,
-) -> Result<HomeGraph> {
+) -> HomeGraph {
     let drawn = |id: &ChangeId| changes.contains_key(id) && (id != trunk || selected.contains(id));
     let mut nodes = BTreeMap::new();
     let mut frontier: VecDeque<ChangeId> = selected.iter().cloned().collect();
@@ -979,10 +986,15 @@ fn home_graph(
             continue;
         }
         let metadata = changes[&id];
-        let parents: BTreeSet<ChangeId> = metadata.parents()?.into_iter().filter(drawn).collect();
+        let parents: BTreeSet<ChangeId> = metadata.parents.iter().filter(|id| drawn(id)).cloned().collect();
         frontier.extend(parents.iter().cloned());
-        let node = HomeNode { title: metadata.title.clone(), selected: selected.contains(&id), parents };
+        let node = HomeNode {
+            title: metadata.title.clone(),
+            selected: selected.contains(&id),
+            archived: metadata.archived,
+            parents,
+        };
         nodes.insert(id, node);
     }
-    Ok(HomeGraph { nodes })
+    HomeGraph { nodes }
 }

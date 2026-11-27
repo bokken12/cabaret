@@ -142,6 +142,7 @@ pub struct Metadata<'txn> {
     pub owners: BTreeSet<Identity>,
     /// Who has approved the change as a whole. Unlike review, this holds however the change evolves.
     pub endorsers: BTreeSet<Identity>,
+    /// What the change lands into. None makes this a root.
     pub parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
 }
@@ -188,10 +189,10 @@ impl<'txn> Metadata<'txn> {
         self.txn.metadata(descendant)?.is_descendant(&self.id)
     }
 
-    /// The changes this one actually targets: declared parents, with archived ones replaced by
-    /// their own parents. None makes this a root.
-    // TODO-someday(joel): store computed parents?
-    pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
+    /// What fixing the parents leaves: archived ones replaced by their own parents, and those
+    /// already an ancestor of another dropped. An archived change's parents are what it landed
+    /// into, so stay as they are.
+    pub fn fixed_parents(&self) -> Result<BTreeSet<ChangeId>> {
         if self.archived {
             return Ok(self.parents.clone());
         }
@@ -200,7 +201,6 @@ impl<'txn> Metadata<'txn> {
         let mut frontier: Vec<_> = self.parents.iter().cloned().collect();
         while let Some(candidate_id) = frontier.pop() {
             let candidate = self.txn.metadata(&candidate_id)?;
-            // skip archived parents and land into their parents
             if candidate.archived {
                 frontier.extend(candidate.parents.iter().cloned());
             } else {

@@ -12,6 +12,7 @@ fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
             let node = HomeNode {
                 title: None,
                 selected: *selected,
+                archived: false,
                 parents: parents
                     .split_whitespace()
                     .filter(|parent| ids.contains(parent))

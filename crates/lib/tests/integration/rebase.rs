@@ -276,6 +276,21 @@ fn non_owner_refuses_unless_allowed() {
 }
 
 #[test]
+fn unfixed_parents_refuse_unless_allowed() {
+    let fixture = diverged();
+    fixture.create("grandchild", "child", &alice());
+    fixture.commit("child", &[("child.txt", "more\n")]);
+    fixture.archive("child");
+    expect!["refused: its parents need fixing, to main"].assert_eq(&rebase(&fixture, "grandchild", None));
+    expect![[r#"Rebase { merged: {"child"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(
+        &fixture,
+        "grandchild",
+        None,
+        &BTreeSet::from([SafeguardKind::UnfixedParents]),
+    ));
+}
+
+#[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &BTreeSet::new()).unwrap();

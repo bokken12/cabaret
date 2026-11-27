@@ -184,7 +184,7 @@ fn unreviewed_refuses_unless_allowed() {
     fixture.commit("child", &[("more.txt", "more\n")]);
     let tip = fixture.tip("main");
     expect!["refused: not all review obligations have been fulfilled (remaining: alice@example.com)"]
-    .assert_eq(&land(&fixture, "child"));
+        .assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
@@ -198,8 +198,7 @@ fn unendorsed_refuses_unless_allowed() {
     let fixture = diverged();
     fixture.cabaret.unendorse(&id("child")).unwrap();
     let tip = fixture.tip("main");
-    expect!["refused: not all owners have endorsed (remaining: alice@example.com)"]
-        .assert_eq(&land(&fixture, "child"));
+    expect!["refused: not all owners have endorsed (remaining: alice@example.com)"].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), tip);
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
@@ -226,9 +225,43 @@ fn each_safeguard_needs_allowing() {
         "child",
         &BTreeSet::from([SafeguardKind::Unreviewed]),
     ));
-    expect!["refused: not all owners have endorsed (remaining: bob@example.com)"].assert_eq(
-        &land_allowing(&fixture, "child", &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner])),
-    );
+    expect!["refused: not all owners have endorsed (remaining: bob@example.com)"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        &BTreeSet::from([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
+    ));
+}
+
+#[test]
+fn unfixed_parents_refuse_unless_allowed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
+    fixture.endorse("child");
+    fixture.archive("parent");
+    expect!["refused: its parents need fixing, to main"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into parent"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        &BTreeSet::from([SafeguardKind::UnfixedParents]),
+    ));
+}
+
+#[test]
+fn fixed_parents_land_past_archived_parent() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
+    fixture.endorse("child");
+    fixture.archive("parent");
+    fixture.cabaret.fix_parents(&id("child")).unwrap();
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
 }
 
 #[test]

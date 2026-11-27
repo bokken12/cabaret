@@ -24,7 +24,6 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
         endorsers: BTreeSet::new(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),
-        declared_parents: BTreeSet::new(),
         review: BTreeMap::new(),
         workspace: None,
     }

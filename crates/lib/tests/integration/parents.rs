@@ -31,7 +31,6 @@ fn unlogged_branch_is_root() {
     fixture.root("main", &[]);
     fixture.branch("unlogged", "main");
     let snapshot = fixture.snapshot("unlogged");
-    expect!["{}"].assert_eq(&format!("{:?}", snapshot.declared_parents));
     expect!["{}"].assert_eq(&format!("{:?}", snapshot.parents));
 }
 
@@ -43,24 +42,22 @@ fn default_change_has_no_parents() {
 }
 
 #[test]
-fn archived_parent_replaced_by_grandparents() {
+fn archived_parent_stays_until_fixed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
     fixture.archive("parent");
-    let snapshot = fixture.snapshot("child");
-    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
-fn ancestor_of_parent_dropped() {
+fn ancestor_of_parent_refuses_unless_allowed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
-    expect!["refused: main is already an ancestor of parent, so it would be skipped"].assert_eq(&add_parent(
+    expect!["refused: main is already an ancestor of parent"].assert_eq(&add_parent(
         &fixture,
         "child",
         "main",
@@ -68,9 +65,7 @@ fn ancestor_of_parent_dropped() {
     ));
     let allow = BTreeSet::from([SafeguardKind::RedundantParent]);
     expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
-    let snapshot = fixture.snapshot("child");
-    expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
-    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
+    expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -81,7 +76,7 @@ fn fix_replaces_archived_parent_with_grandparents() {
     fixture.create("child", "parent", &alice());
     fixture.archive("parent");
     fixture.cabaret.fix_parents(&id("child")).unwrap();
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -93,11 +88,11 @@ fn fix_drops_ancestor_of_other_parent() {
     let allow = BTreeSet::from([SafeguardKind::RedundantParent]);
     expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
     fixture.cabaret.fix_parents(&id("child")).unwrap();
-    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
-fn children_are_open_changes_targeting_it() {
+fn children_are_open_changes_with_it_as_parent() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
@@ -105,8 +100,8 @@ fn children_are_open_changes_targeting_it() {
     fixture.create("sibling", "main", &alice());
     fixture.archive("parent");
     let children = |change: &str| format!("{:?}", fixture.cabaret.children(&id(change)).unwrap());
-    expect![[r#"{"child", "sibling"}"#]].assert_eq(&children("main"));
-    expect!["{}"].assert_eq(&children("parent"));
+    expect![[r#"{"sibling"}"#]].assert_eq(&children("main"));
+    expect![[r#"{"child"}"#]].assert_eq(&children("parent"));
 }
 
 #[test]
@@ -118,10 +113,10 @@ fn created_parent_sits_between_child_and_its_parents() {
     fixture.commit("main", &[("c", "3")]);
     fixture.cabaret.create_parent("parent", &id("child"), &alice(), &BTreeSet::new()).unwrap();
     let parent = fixture.snapshot("parent");
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.parents));
     expect![[r#"{Identity("alice@example.com")}"#]].assert_eq(&format!("{:?}", parent.owners));
     assert_eq!(parent.tip, fixture.tip("main"));
-    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+    expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
     expect![[r#"
         child 26fb68bb
           parents parent
