@@ -1,0 +1,3 @@
+A log commit holding a forge-event file records an event imported from a forge, by the forge's id for it. It has no parents, so every device importing the event writes the same commit, and it folds after every write that did not see it, whatever their clocks say; forge events fold among themselves in time order. Nothing writes such a commit yet.
+
+TODO(joel): docs/log.md describes the fold and the files of a log commit, and wants this added.
