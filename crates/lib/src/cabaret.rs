@@ -10,6 +10,7 @@ use cabaret_transaction::{Branch, BranchOp, Metadata, Status, Store, Transaction
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
     RepoPath, Result, Reviewing, RevisionId, ViewDiff,
+    log::LogAction,
     safeguard::{Safeguard, SafeguardKind},
 };
 use jiff::ZonedDateTime;
@@ -288,21 +289,22 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
-        let (first, rest) = parent_ids.nonempty_iter().next();
-        let tip = self.store.query(|txn| Ok(txn.branch(first)?.tip))?;
-        let branches = [BranchOp::Insert { id: &change_id, tip }];
-        self.store.transact(allow, &[&change_id], &branches, &[], |txn, [metadata], [branch], []| {
+        let branches = [BranchOp::Insert(&change_id)];
+        self.store.transact(allow, &[&change_id], &branches, &[], |txn, [edit], [tip], []| {
             for parent_id in parent_ids {
                 if txn.metadata(parent_id)?.archived {
                     txn.check(Safeguard::ArchivedParents { parents: nebts![parent_id.clone()] });
                 }
             }
+            let (first, rest) = parent_ids.nonempty_iter().next();
+            let mut branch = Branch::new(txn, change_id.clone(), txn.branch(first)?.tip);
             for parent_id in rest {
                 branch.merge(txn.branch(parent_id)?, "create")?;
             }
-            metadata.title = Some(name.to_owned());
-            metadata.parents = parent_ids.iter().cloned().collect();
-            metadata.owners = BTreeSet::from([owner.clone()]);
+            *tip = Some(branch.tip);
+            edit.actions.push(LogAction::AddOwner { owner: owner.clone() });
+            edit.actions.extend(parent_ids.iter().cloned().map(|parent| LogAction::AddParent { parent }));
+            edit.actions.push(LogAction::SetTitle { title: Some(name.to_owned()) });
             Ok(())
         })?;
         Ok(change_id)
@@ -317,21 +319,21 @@ impl Cabaret {
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
-        // TODO(joel): currently non-atomic to build tip
-        let parents = self.store.query(|txn| Ok(txn.metadata(child_id)?.parents.clone()))?;
-        let mut to_merge = parents.iter();
-        let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
-
-        let tip = self.store.query(|txn| Ok(txn.branch(first)?.tip))?;
-        let branches = [BranchOp::Insert { id: &change_id, tip }];
-        self.store.transact(allow, &[&change_id, child_id], &branches, &[], |txn, [change, child], [branch], []| {
+        let branches = [BranchOp::Insert(&change_id)];
+        self.store.transact(allow, &[&change_id, child_id], &branches, &[], |txn, [change, child], [tip], []| {
+            let parents = &txn.metadata(child_id)?.parents;
+            let mut to_merge = parents.iter();
+            let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
+            let mut branch = Branch::new(txn, change_id.clone(), txn.branch(first)?.tip);
             for parent_id in to_merge {
                 branch.merge(txn.branch(parent_id)?, "create")?;
             }
-            change.title = Some(name.to_owned());
-            change.parents.clone_from(&parents);
-            change.owners = BTreeSet::from([owner.clone()]);
-            child.parents = BTreeSet::from([change_id.clone()]);
+            *tip = Some(branch.tip);
+            change.actions.push(LogAction::AddOwner { owner: owner.clone() });
+            change.actions.extend(parents.iter().cloned().map(|parent| LogAction::AddParent { parent }));
+            change.actions.push(LogAction::SetTitle { title: Some(name.to_owned()) });
+            child.actions.extend(parents.iter().cloned().map(|parent| LogAction::RemoveParent { parent }));
+            child.actions.push(LogAction::AddParent { parent: change_id.clone() });
             Ok(())
         })?;
         Ok(change_id)
@@ -349,7 +351,8 @@ impl Cabaret {
         let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact(allow, &[], &branches, &workspaces, |txn, [], [branch], [workspace]| {
+        self.store.transact(allow, &[], &branches, &workspaces, |txn, [], [tip], [workspace]| {
+            let branch = txn.branch(change_id)?;
             if txn.metadata(change_id)?.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -373,8 +376,8 @@ impl Cabaret {
             if workspace.snapshot(pathspecs)? != tree {
                 Err(format!("files changed while committing to {change_id}; commit again"))?;
             }
-            branch.tip = committed.tip;
-            Ok(branch.tip)
+            *tip = Some(committed.tip);
+            Ok(committed.tip)
         })
     }
 
@@ -384,7 +387,7 @@ impl Cabaret {
         let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact(&BTreeSet::new(), &[], &branches, &workspaces, |_txn, [], [_branch], [workspace]| {
+        self.store.transact(&BTreeSet::new(), &[], &branches, &workspaces, |_txn, [], [_tip], [workspace]| {
             // The workspace was found before its lock was taken, so it may have switched since.
             if workspace.change().is_none_or(|held| **held != *change_id) {
                 Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;
@@ -403,7 +406,9 @@ impl Cabaret {
         let parent_id = self.store.query(|txn| landing_parent(txn, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact(allow, &[change_id], &branches, &[], |txn, [child], [parent, child_branch], []| {
+        self.store.transact(allow, &[change_id], &branches, &[], |txn, [edit], [parent_tip, _child_tip], []| {
+            let (child, child_branch) = (txn.metadata(change_id)?, txn.branch(change_id)?);
+            let mut parent = txn.branch(&parent_id)?.clone();
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -443,8 +448,9 @@ impl Cabaret {
             {
                 txn.check(Safeguard::Uncommitted { workspace });
             }
+            *parent_tip = Some(parent.tip);
             if !child.permanent {
-                child.archived = true;
+                edit.actions.push(LogAction::SetArchived { archived: true });
             }
             Ok(parent_id.clone())
         })
@@ -460,7 +466,8 @@ impl Cabaret {
         onto: Option<&ChangeIdRef>,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<Rebase> {
-        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &[], |txn, [], [branch], []| {
+        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &[], |txn, [], [tip], []| {
+            let mut branch = txn.branch(change_id)?.clone();
             let metadata = txn.metadata(change_id)?;
             let targets = rebase_targets(metadata, onto)?;
             txn.check_owner(change_id)?;
@@ -492,12 +499,13 @@ impl Cabaret {
                 }
             }
             rebase.remaining = targets.collect();
+            *tip = Some(branch.tip);
             Ok(rebase)
         })
     }
 
     pub fn archive(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             if metadata.archived {
                 return Ok(());
             }
@@ -507,13 +515,13 @@ impl Cabaret {
             if metadata.permanent {
                 txn.check(Safeguard::Permanent);
             }
-            metadata.archived = true;
+            edit.actions.push(LogAction::SetArchived { archived: true });
             Ok(())
         })
     }
 
     pub fn unarchive(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             if !metadata.archived {
                 return Ok(());
             }
@@ -526,14 +534,16 @@ impl Cabaret {
             if let Some(parents) = NEBTreeSet::try_from_set(archived) {
                 txn.check(Safeguard::ArchivedParents { parents });
             }
-            metadata.archived = false;
+            edit.actions.push(LogAction::SetArchived { archived: false });
             Ok(())
         })
     }
 
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata| {
-            metadata.owners.insert(owner.clone());
+        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata, edit| {
+            if !metadata.owners.contains(owner) {
+                edit.actions.push(LogAction::AddOwner { owner: owner.clone() });
+            }
             Ok(())
         })
     }
@@ -544,16 +554,17 @@ impl Cabaret {
         owner: &Identity,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
-            if !metadata.owners.remove(owner) {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
+            if !metadata.owners.contains(owner) {
                 return Ok(());
             }
             if *owner != txn.identity()? {
                 txn.check(Safeguard::RemovesOthers { owners: nebts![owner.clone()] });
             }
-            if metadata.owners.is_empty() {
+            if metadata.owners.len() == 1 {
                 txn.check(Safeguard::Ownerless);
             }
+            edit.actions.push(LogAction::RemoveOwner { owner: owner.clone() });
             Ok(())
         })
     }
@@ -564,7 +575,7 @@ impl Cabaret {
         owners: &BTreeSet<Identity>,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             if metadata.owners == *owners {
                 return Ok(());
             }
@@ -576,7 +587,12 @@ impl Cabaret {
             if owners.is_empty() {
                 txn.check(Safeguard::Ownerless);
             }
-            metadata.owners.clone_from(owners);
+            for owner in metadata.owners.difference(owners) {
+                edit.actions.push(LogAction::RemoveOwner { owner: owner.clone() });
+            }
+            for owner in owners.difference(&metadata.owners) {
+                edit.actions.push(LogAction::AddOwner { owner: owner.clone() });
+            }
             Ok(())
         })
     }
@@ -589,8 +605,8 @@ impl Cabaret {
         parent_id: &ChangeIdRef,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
-            if !metadata.parents.insert(parent_id.to_owned()) {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
+            if metadata.parents.contains(parent_id) {
                 return Ok(());
             }
             if parent_id == change_id {
@@ -603,15 +619,18 @@ impl Cabaret {
             if parent.archived && !metadata.archived {
                 txn.check(Safeguard::ArchivedParents { parents: nebts![parent_id.to_owned()] });
             }
-            for other in metadata.parents.iter().filter(|other| other.as_ref() != parent_id) {
+            for other in &metadata.parents {
                 if txn.metadata(other)?.is_descendant(parent_id)? {
                     txn.check(Safeguard::RedundantParent { parent: parent_id.to_owned(), descendant: other.clone() });
                     break;
                 }
             }
-            if let Some(safeguard) = no_common_ancestor(metadata)? {
+            let mut parents = metadata.parents.clone();
+            parents.insert(parent_id.to_owned());
+            if let Some(safeguard) = no_common_ancestor(txn, parents)? {
                 txn.check(safeguard);
             }
+            edit.actions.push(LogAction::AddParent { parent: parent_id.to_owned() });
             Ok(())
         })
     }
@@ -622,21 +641,22 @@ impl Cabaret {
         parent_id: &ChangeIdRef,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
-            let branch = txn.branch(change_id)?;
-            let before = branch.base(&metadata.parents)?;
-            if !metadata.parents.remove(parent_id) {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
+            let mut parents = metadata.parents.clone();
+            if !parents.remove(parent_id) {
                 return Ok(());
             }
-            if branch.base(&metadata.parents)? != before {
+            let branch = txn.branch(change_id)?;
+            if branch.base(&parents)? != branch.base(&metadata.parents)? {
                 txn.check(Safeguard::BaseMoves { removed: nebts![parent_id.to_owned()] });
             }
-            if metadata.parents.is_empty() {
+            if parents.is_empty() {
                 txn.check(Safeguard::Parentless);
             }
-            if let Some(safeguard) = no_common_ancestor(metadata)? {
+            if let Some(safeguard) = no_common_ancestor(txn, parents)? {
                 txn.check(safeguard);
             }
+            edit.actions.push(LogAction::RemoveParent { parent: parent_id.to_owned() });
             Ok(())
         })
     }
@@ -645,7 +665,7 @@ impl Cabaret {
     /// of another, see `Metadata::fixed_parents`. A parent archived without landing takes the
     /// base back with it, which refuses unless allowed.
     pub fn fix_parents(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             let branch = txn.branch(change_id)?;
             let fixed = metadata.fixed_parents()?;
             if branch.base(&fixed)? != branch.base(&metadata.parents)? {
@@ -653,7 +673,12 @@ impl Cabaret {
                     .expect("fixing moves the base only by removing parents");
                 txn.check(Safeguard::BaseMoves { removed });
             }
-            metadata.parents = fixed;
+            for parent in metadata.parents.difference(&fixed) {
+                edit.actions.push(LogAction::RemoveParent { parent: parent.clone() });
+            }
+            for parent in fixed.difference(&metadata.parents) {
+                edit.actions.push(LogAction::AddParent { parent: parent.clone() });
+            }
             Ok(())
         })
     }
@@ -668,12 +693,12 @@ impl Cabaret {
         pathspecs: &[Pathspec],
         head: Option<RevisionId>,
     ) -> Result<BTreeSet<RepoPath>> {
-        self.store.update_metadata(&BTreeSet::new(), change_id, |txn, metadata| {
+        self.store.update_metadata(&BTreeSet::new(), change_id, |txn, metadata, edit| {
             let branch = txn.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
-            let parents = metadata.parents.clone();
-            let review = metadata.review.entry(txn.identity()?).or_default();
-            let left = branch.review_files(&parents, review, &[])?;
+            let reviewer = txn.identity()?;
+            let review = metadata.review.get(&reviewer).cloned().unwrap_or_default();
+            let left = branch.review_files(&metadata.parents, &review, &[])?;
             let mut files = BTreeSet::new();
             let mut unmatched = Vec::new();
             for pathspec in pathspecs {
@@ -694,7 +719,9 @@ impl Cabaret {
                     unmatched.join(", ")
                 ))?;
             }
-            review.extend(files.iter().map(|file| (file.clone(), revision)));
+            for file in files.iter().filter(|file| review.get(*file) != Some(&revision)) {
+                edit.actions.push(LogAction::Mark { reviewer: reviewer.clone(), file: file.clone(), revision });
+            }
             Ok(files)
         })
     }
@@ -702,27 +729,34 @@ impl Cabaret {
     /// Record that this repository's identity approves `change_id` as a whole, which holds however
     /// the change evolves after, unlike review. Endorsing with files left to review is refused.
     pub fn endorse(&self, change_id: &ChangeIdRef, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             let you = txn.identity()?;
             let review = metadata.review.get(&you).cloned().unwrap_or_default();
             if !txn.branch(change_id)?.review_files(&metadata.parents, &review, &[])?.is_empty() {
                 txn.check(Safeguard::Unreviewed { reviewers: NEBTreeSet::new(you.clone()) });
             }
-            metadata.endorsers.insert(you);
+            if !metadata.endorsers.contains(&you) {
+                edit.actions.push(LogAction::Endorse { endorser: you });
+            }
             Ok(())
         })
     }
 
     pub fn unendorse(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(&BTreeSet::new(), change_id, |txn, metadata| {
-            metadata.endorsers.remove(&txn.identity()?);
+        self.store.update_metadata(&BTreeSet::new(), change_id, |txn, metadata, edit| {
+            let you = txn.identity()?;
+            if metadata.endorsers.contains(&you) {
+                edit.actions.push(LogAction::Unendorse { endorser: you });
+            }
             Ok(())
         })
     }
 
     pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
-        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata| {
-            metadata.title = title;
+        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata, edit| {
+            if metadata.title != title {
+                edit.actions.push(LogAction::SetTitle { title });
+            }
             Ok(())
         })
     }
@@ -730,8 +764,8 @@ impl Cabaret {
     /// Set `change_id`'s description; `None` or an empty text clears it.
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
         let description = description.filter(|text| !text.is_empty());
-        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, metadata| {
-            metadata.description = description;
+        self.store.update_metadata(&BTreeSet::new(), change_id, |_txn, _metadata, edit| {
+            edit.description = Some(description);
             Ok(())
         })
     }
@@ -742,7 +776,7 @@ impl Cabaret {
         permanent: bool,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             if metadata.permanent == permanent {
                 return Ok(());
             }
@@ -763,7 +797,7 @@ impl Cabaret {
                     txn.check(Safeguard::ImpermanentParents { parents });
                 }
             }
-            metadata.permanent = permanent;
+            edit.actions.push(LogAction::SetPermanent { permanent });
             Ok(())
         })
     }
@@ -774,12 +808,12 @@ impl Cabaret {
         reviewing: Reviewing,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
-        self.store.update_metadata(allow, change_id, |txn, metadata| {
+        self.store.update_metadata(allow, change_id, |txn, metadata, edit| {
             if metadata.reviewing == reviewing {
                 return Ok(());
             }
             txn.check_owner(change_id)?;
-            metadata.reviewing = reviewing;
+            edit.actions.push(LogAction::SetReviewing { reviewing });
             Ok(())
         })
     }
@@ -950,12 +984,12 @@ fn landing_parent<'txn>(txn: &'txn Transaction<'txn>, change_id: &ChangeIdRef) -
     }
 }
 
-/// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.
-fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<Safeguard>> {
-    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents.clone()) else { return Ok(None) };
+/// Whether `parents` share no ancestor, so could never coalesce into one to land into.
+fn no_common_ancestor<'txn>(txn: &'txn Transaction<'txn>, parents: BTreeSet<ChangeId>) -> Result<Option<Safeguard>> {
+    let Some(parents) = NEBTreeSet::try_from_set(parents) else { return Ok(None) };
     let mut common: Option<BTreeSet<ChangeId>> = None;
     for parent in &parents {
-        let ancestors = metadata.txn().ancestors(parent)?;
+        let ancestors = txn.ancestors(parent)?;
         common = Some(match common {
             None => ancestors,
             Some(common) => &common & &ancestors,

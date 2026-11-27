@@ -7,7 +7,7 @@ mod tree;
 mod workspace;
 
 pub use branch::Branch;
-pub use metadata::Metadata;
+pub use metadata::{Metadata, MetadataEdit};
 pub use revision::Revision;
 pub use store::{BranchOp, Store, WorkspaceOp};
 pub use transaction::Transaction;

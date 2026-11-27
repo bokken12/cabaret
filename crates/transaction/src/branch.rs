@@ -9,6 +9,10 @@ use gix::{
         blob::builtin_driver::text::{Conflict, Labels},
         tree::TreatAsUnresolved,
     },
+    refs::{
+        Target,
+        transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
+    },
 };
 use nonempty_collections::NEBTreeSet;
 
@@ -28,6 +32,24 @@ impl<'txn> Branch<'txn> {
     pub fn load(txn: &'txn Transaction<'txn>, id: &ChangeIdRef) -> Result<Self> {
         let tip = RevisionId(txn.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
         Ok(Self::new(txn, id.to_owned(), tip))
+    }
+
+    /// The ref edit moving this branch from `before` to its tip, or creating it there when
+    /// `None`. It expects `before`, so a concurrent write fails rather than being overwritten.
+    pub fn edit(&self, before: Option<RevisionId>) -> RefEdit {
+        let (expected, message) = match before {
+            Some(before) => (PreviousValue::MustExistAndMatch(Target::Object(before.0)), "cabaret: update"),
+            None => (PreviousValue::MustNotExist, "cabaret: create"),
+        };
+        RefEdit {
+            change: RefChange::Update {
+                log: LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: message.into() },
+                expected,
+                new: Target::Object(self.tip.0),
+            },
+            name: self.id.branch_ref(),
+            deref: false,
+        }
     }
 
     pub fn txn(&self) -> &'txn Transaction<'txn> { self.txn }

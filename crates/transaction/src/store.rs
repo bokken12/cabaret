@@ -10,15 +10,11 @@ use gix::{
     ThreadSafeRepository,
     fs::SharedPermissions,
     lock::{Marker, acquire::Fail},
-    refs::{
-        Target,
-        transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
-    },
 };
 
 use crate::{
     branch::Branch,
-    metadata::Metadata,
+    metadata::{Metadata, MetadataEdit},
     transaction::Transaction,
     workspace::{Head, Workspace},
 };
@@ -28,29 +24,15 @@ use crate::{
 pub enum BranchOp<'a> {
     // TODO(joel): convert tuple-struct to named?
     Update(&'a ChangeIdRef),
-    Insert { id: &'a ChangeIdRef, tip: RevisionId },
+    /// The transaction must give the branch a tip.
+    Insert(&'a ChangeIdRef),
 }
 
 impl<'a> BranchOp<'a> {
     fn id(&self) -> &'a ChangeIdRef {
         match self {
-            BranchOp::Update(id) | BranchOp::Insert { id, .. } => id,
+            BranchOp::Update(id) | BranchOp::Insert(id) => id,
         }
-    }
-
-    /// The branch before the transaction: as committed, or at `tip` for an insert. An insert
-    /// refuses an id whose branch exists: gix's `MustNotExist` lets a ref be rewritten to the
-    /// value it already has, which would pass creating a change twice off as a success.
-    fn before<'txn>(&self, txn: &'txn Transaction<'txn>) -> Result<Branch<'txn>> {
-        Ok(match self {
-            BranchOp::Update(id) => txn.branch(id)?.clone(),
-            BranchOp::Insert { id, tip } => {
-                if txn.repo.try_find_reference(&id.branch_ref())?.is_some() {
-                    Err(format!("{id} already exists"))?;
-                }
-                Branch::new(txn, (*id).to_owned(), *tip)
-            }
-        })
     }
 }
 pub enum WorkspaceOp<'a> {
@@ -172,14 +154,13 @@ impl Store {
     }
 
     // TODO(joel): transactions do not (yet) modify changes
-    /// Run `f` against a fresh context and record what it changed; if `f` fails, as when
-    /// refused, nothing is recorded.
+    /// Run `f` against a fresh context and record what it asks to be written; if `f` fails, as
+    /// when refused, nothing is recorded.
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
-    /// nothing it is handed (the context, its own mutable metadata and branches) can be returned:
-    /// `T` cannot name `'txn`. Inside, `txn.metadata` and `txn.branch` are committed state and
-    /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
-    /// other changes through the context.
+    /// nothing it reads through the context can be returned: `T` cannot name `'txn`. Everything
+    /// read through the context is as committed, whatever `f` has asked for so far: it gets one
+    /// edit per metadata to fill in, and one tip per branch to set, `None` leaving the branch be.
     pub fn transact_<T, F>(
         &self,
         allow: &BTreeSet<SafeguardKind>,
@@ -191,8 +172,8 @@ impl Store {
     where
         F: for<'txn> FnOnce(
             &'txn Transaction<'txn>,
-            &mut [Metadata<'txn>],
-            &mut [Branch<'txn>],
+            &mut [MetadataEdit],
+            &mut [Option<RevisionId>],
             &mut [Workspace<'txn>],
         ) -> Result<T>,
     {
@@ -205,17 +186,20 @@ impl Store {
         // TODO(joel): retry on ref contention instead of surfacing it
         let txn = Transaction::new(self.repo.to_thread_local(), locks, allow);
 
+        // gix's `MustNotExist` lets a ref be rewritten to the value it already has, which would
+        // pass creating a change twice off as a success.
+        for op in branch_ops {
+            if let BranchOp::Insert(id) = op
+                && txn.repo.try_find_reference(&id.branch_ref())?.is_some()
+            {
+                Err(format!("{id} already exists"))?;
+            }
+        }
         // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
         // append creates the log.
-        let mut metadata = Vec::new();
-        for id in metadata_ids {
-            metadata.push(txn.metadata(id)?.clone());
-        }
-        let mut branches = Vec::new();
-        for op in branch_ops {
-            branches.push(op.before(&txn)?);
-        }
+        let mut metadata: Vec<MetadataEdit> = metadata_ids.iter().map(|_| MetadataEdit::default()).collect();
+        let mut tips = vec![None; branch_ops.len()];
         let mut workspaces = Vec::new();
         for op in workspace_ops {
             workspaces.push(op.before(&txn)?);
@@ -232,42 +216,36 @@ impl Store {
             }
         }
 
-        let out = f(&txn, &mut metadata, &mut branches, &mut workspaces)?;
+        let out = f(&txn, &mut metadata, &mut tips, &mut workspaces)?;
 
         txn.confirm()?;
 
-        // TODO(joel): all of this post-processing winds up feeling a little awkward, I wonder if we could generalize or
-        // simplify it a bit? E.g., just spitballing, maybe every ordinary operation is really just a ref move that can
-        // be built up, sometimes with some arbitrary extra work done after non-atomically (e.g. workspace deletion,
-        // etc). Maybe it'd even be cleaner if operations directly described the log entries they wanted to insert into
-        // the metadata rather than creating these mutable representations and then checking what mutated within them?
-
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
-        for (id, metadata) in metadata_ids.iter().zip(&metadata) {
-            edits.extend(metadata.write_since(txn.metadata(id)?)?);
+        for (id, edit) in metadata_ids.iter().zip(&metadata) {
+            edits.extend(txn.metadata(id)?.write(edit)?);
         }
-        let mut moved = Vec::new();
-        for (op, branch) in branch_ops.iter().zip(&branches) {
-            let before = op.before(&txn)?;
-            let (expected, message) = match op {
-                BranchOp::Insert { .. } => (PreviousValue::MustNotExist, "cabaret: create"),
-                BranchOp::Update(_) if branch.tip != before.tip => {
-                    moved.push((branch, before.tip));
-                    (PreviousValue::MustExistAndMatch(Target::Object(before.tip.0)), "cabaret: update")
-                }
-                BranchOp::Update(_) => continue,
+        // Each declared branch as the transaction leaves it, beside the tip it had.
+        let mut branches = Vec::new();
+        let mut committed = Vec::new();
+        for (op, tip) in branch_ops.iter().zip(tips) {
+            let before = match op {
+                BranchOp::Update(id) => Some(txn.branch(id)?.tip),
+                BranchOp::Insert(_) => None,
             };
-            edits.push(RefEdit {
-                change: RefChange::Update {
-                    log: LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: message.into() },
-                    expected,
-                    new: Target::Object(branch.tip.0),
-                },
-                name: branch.id().branch_ref(),
-                deref: false,
-            });
+            let branch =
+                Branch::new(&txn, op.id().to_owned(), tip.or(before).expect("an inserted branch is given a tip"));
+            if before != Some(branch.tip) {
+                edits.push(branch.edit(before));
+            }
+            branches.push(branch);
+            committed.push(before);
         }
+        let moved: Vec<(&Branch<'_>, RevisionId)> = branches
+            .iter()
+            .zip(committed)
+            .filter_map(|(branch, before)| Some((branch, before.filter(|before| *before != branch.tip)?)))
+            .collect();
         for (branch, _) in &moved {
             if let Some(workspace) = branch.workspace()? {
                 Workspace::load(&txn, workspace.to_ref())?.check_settled()?;
@@ -278,6 +256,7 @@ impl Store {
         }
         // Workspaces are written once the branches have moved: a failed transaction leaves them
         // behind rather than ahead of it.
+        // TODO-someday(joel): `checkout_tip` can still refuse here, after the refs are written
         for (op, workspace) in workspace_ops.iter().zip(&mut workspaces) {
             match op {
                 WorkspaceOp::Insert { .. } => workspace.create(checkout_tip(workspace, &branches)?)?,
@@ -310,8 +289,8 @@ impl Store {
     where
         F: for<'txn> FnOnce(
             &'txn Transaction<'txn>,
-            &mut [Metadata<'txn>; L],
-            &mut [Branch<'txn>; M],
+            &mut [MetadataEdit; L],
+            &mut [Option<RevisionId>; M],
             &mut [Workspace<'txn>; N],
         ) -> Result<T>,
     {
@@ -320,11 +299,11 @@ impl Store {
             metadata_ids.as_slice(),
             branch_ops.as_slice(),
             workspace_ops.as_slice(),
-            |txn, metadata, branches, workspaces| {
+            |txn, metadata, tips, workspaces| {
                 f(
                     txn,
-                    metadata.try_into().expect("one metadata per id"),
-                    branches.try_into().expect("one branch per id"),
+                    metadata.try_into().expect("one edit per id"),
+                    tips.try_into().expect("one tip per branch"),
                     workspaces.try_into().expect("one workspace per id"),
                 )
             },
@@ -341,7 +320,7 @@ impl Store {
     // TODO(joel): think about this?
     /// Bring `id`'s log up to date with origin's; see [`Metadata::merge_origin`]. A merge is a
     /// transaction of its own: it writes the log commits it merges rather than actions taken now,
-    /// so no in-flight metadata can express it.
+    /// so no edit can express it.
     pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
         let allow = BTreeSet::new();
         let txn =
@@ -354,8 +333,8 @@ impl Store {
 
     pub fn update_metadata<T, F>(&self, allow: &BTreeSet<SafeguardKind>, id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: for<'txn> FnOnce(&'txn Transaction<'txn>, &mut Metadata<'txn>) -> Result<T>,
+        F: for<'txn> FnOnce(&'txn Transaction<'txn>, &'txn Metadata<'txn>, &mut MetadataEdit) -> Result<T>,
     {
-        self.transact(allow, &[id], &[], &[], |txn, [metadata], [], []| f(txn, metadata))
+        self.transact(allow, &[id], &[], &[], |txn, [edit], [], []| f(txn, txn.metadata(id)?, edit))
     }
 }

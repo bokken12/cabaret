@@ -128,6 +128,15 @@ fn description(repo: &Repository, id: ObjectId) -> Result<String> {
     Ok(file(&repo.find_commit(id)?.tree()?, DESCRIPTION_FILE)?.unwrap_or_default())
 }
 
+/// What a transaction writes to one change's metadata. Actions are recorded as given, without
+/// regard to whether the state they ask for already holds.
+#[derive(Debug, Default)]
+pub struct MetadataEdit {
+    pub actions: Vec<LogAction>,
+    /// `None` leaves the description be.
+    pub description: Option<Option<String>>,
+}
+
 /// A change's metadata as of one instant: everything about it except where its branch points.
 #[derive(Clone, Debug)]
 pub struct Metadata<'txn> {
@@ -258,73 +267,24 @@ impl<'txn> Metadata<'txn> {
         }
     }
 
-    /// The actions that take `before` to `self`; empty when nothing changed.
-    pub fn actions_since(&self, before: &Self) -> Vec<LogAction> {
-        let mut actions = Vec::new();
-        for owner in before.owners.difference(&self.owners) {
-            actions.push(LogAction::RemoveOwner { owner: owner.clone() });
-        }
-        for owner in self.owners.difference(&before.owners) {
-            actions.push(LogAction::AddOwner { owner: owner.clone() });
-        }
-        for endorser in before.endorsers.difference(&self.endorsers) {
-            actions.push(LogAction::Unendorse { endorser: endorser.clone() });
-        }
-        for endorser in self.endorsers.difference(&before.endorsers) {
-            actions.push(LogAction::Endorse { endorser: endorser.clone() });
-        }
-        for parent in before.parents.difference(&self.parents) {
-            actions.push(LogAction::RemoveParent { parent: parent.clone() });
-        }
-        for parent in self.parents.difference(&before.parents) {
-            actions.push(LogAction::AddParent { parent: parent.clone() });
-        }
-        if self.archived != before.archived {
-            actions.push(LogAction::SetArchived { archived: self.archived });
-        }
-        if self.permanent != before.permanent {
-            actions.push(LogAction::SetPermanent { permanent: self.permanent });
-        }
-        if self.reviewing != before.reviewing {
-            actions.push(LogAction::SetReviewing { reviewing: self.reviewing });
-        }
-        if self.title != before.title {
-            actions.push(LogAction::SetTitle { title: self.title.clone() });
-        }
-        for (reviewer, files) in &before.review {
-            let kept = |file: &RepoPath| self.review.get(reviewer).is_some_and(|files| files.contains_key(file));
-            for file in files.keys().filter(|file| !kept(file)) {
-                actions.push(LogAction::Forget { reviewer: reviewer.clone(), file: file.clone() });
-            }
-        }
-        for (reviewer, files) in &self.review {
-            let previous = |file: &RepoPath| before.review.get(reviewer).and_then(|files| files.get(file));
-            for (file, revision) in files.iter().filter(|(file, revision)| previous(file) != Some(revision)) {
-                actions.push(LogAction::Mark { reviewer: reviewer.clone(), file: file.clone(), revision: *revision });
-            }
-        }
-        actions
-    }
-
-    /// Write how this differs from `before` as a commit on the one this was read from: the actions
-    /// (see [`Self::actions_since`]), and the description as it now is. Returns the ref edit that
-    /// publishes it, or `None` when nothing changed. The edit expects the commit this was read
-    /// from, so a concurrent write fails rather than being overwritten.
-    pub fn write_since(&self, before: &Self) -> Result<Option<RefEdit>> {
-        let actions = self.actions_since(before);
-        let described = self.description != before.description;
-        if actions.is_empty() && !described {
+    /// Write `edit` as a commit on the one this was read from: its actions, and the description as
+    /// it leaves it. Returns the ref edit that publishes it, or `None` when it changes nothing. The
+    /// edit expects the commit this was read from, so a concurrent write fails rather than being
+    /// overwritten.
+    pub fn write(&self, edit: &MetadataEdit) -> Result<Option<RefEdit>> {
+        let description = edit.description.as_ref().filter(|description| **description != self.description);
+        if edit.actions.is_empty() && description.is_none() {
             return Ok(None);
         }
 
         let txn = self.txn();
-        let text = log::render(&actions)?;
-        let tree = write_tree(&txn.repo, &text, self.description.as_deref().unwrap_or(""))?;
+        let text = log::render(&edit.actions)?;
+        let tree = write_tree(&txn.repo, &text, description.unwrap_or(&self.description).as_deref().unwrap_or(""))?;
 
-        let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::revision).collect();
+        let referenced: BTreeSet<RevisionId> = edit.actions.iter().filter_map(LogAction::revision).collect();
         let parents = self.commit.map(RevisionId).into_iter().chain(referenced).collect();
         let mut message = text;
-        if described {
+        if description.is_some() {
             message.push_str("edit description\n");
         }
         let commit = txn.commit(tree, parents, message)?;

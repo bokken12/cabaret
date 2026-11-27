@@ -81,7 +81,7 @@ impl Cabaret {
             &[],
             &[BranchOp::Update(change_id)],
             &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.to_owned()) }],
-            |_txn, [], [_branch], [_workspace]| Ok(()),
+            |_txn, [], [_tip], [_workspace]| Ok(()),
         )?;
         Ok(path)
     }
@@ -155,7 +155,7 @@ impl Cabaret {
                 &[&change],
                 &[BranchOp::Update(&change)],
                 &[WorkspaceOp::Delete { id: workspace.to_ref() }],
-                |_txn, [metadata], [_branch], [_workspace]| match metadata.archived {
+                |txn, [_edit], [_tip], [_workspace]| match txn.metadata(&change)?.archived {
                     true => Ok(()),
                     false => Err(format!("{change} is no longer archived").into()),
                 },

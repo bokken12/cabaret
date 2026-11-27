@@ -3,7 +3,7 @@ use std::{
     process::Command,
 };
 
-use cabaret_transaction::BranchOp;
+use cabaret_transaction::{Branch, BranchOp};
 use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId};
 use gix::{bstr::ByteSlice, protocol::handshake::Ref, remote::Direction};
 
@@ -96,24 +96,28 @@ impl Cabaret {
         let origin = RevisionId(origin.into_fully_peeled_id()?.detach());
         if !local {
             // TODO-someday(joel): check out the files in a workspace whose unborn HEAD names this branch
-            let insert = BranchOp::Insert { id: change_id, tip: origin };
-            self.store.transact(&BTreeSet::new(), &[], &[insert], &[], |_txn, [], [_branch], []| Ok(()))?;
+            let insert = BranchOp::Insert(change_id);
+            self.store.transact(&BTreeSet::new(), &[], &[insert], &[], |_txn, [], [tip], []| {
+                *tip = Some(origin);
+                Ok(())
+            })?;
             return Ok(false);
         }
-        self.store.transact(&BTreeSet::new(), &[], &[BranchOp::Update(change_id)], &[], |txn, [], [branch], []| {
+        self.store.transact(&BTreeSet::new(), &[], &[BranchOp::Update(change_id)], &[], |txn, [], [tip], []| {
+            let branch = txn.branch(change_id)?;
             if txn.is_predecessor(origin, branch.tip)? {
                 return Ok(branch.tip != origin);
             }
             if !txn.is_predecessor(branch.tip, origin)? {
                 Err("diverged from origin")?;
             }
-            let from = branch.tip;
-            branch.tip = origin;
+            let synced = Branch::new(txn, change_id.to_owned(), origin);
             if let Some(workspace) = branch.workspace()?
-                && txn.workspace(workspace.to_ref())?.fast_forward_conflicts(from, branch)?
+                && txn.workspace(workspace.to_ref())?.fast_forward_conflicts(branch.tip, &synced)?
             {
                 Err(format!("local changes in workspace {workspace} conflict with origin's"))?;
             }
+            *tip = Some(origin);
             Ok(false)
         })
     }
