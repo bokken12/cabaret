@@ -118,13 +118,15 @@ impl Cabaret {
     /// workspace needs the branch it holds, which is only known once read; the transaction
     /// re-checks it under the lock.
     pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>, allow: &BTreeSet<SafeguardKind>) -> Result<()> {
+        if workspace_id == WorkspaceIdRef::Main {
+            Err("the main workspace cannot be removed")?;
+        }
+        let held = self.held(workspace_id)?;
+        let branches: Vec<BranchOp> = held.iter().map(|change| BranchOp::Update(change)).collect();
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
 
-        self.store.transact(allow, &[], &[], &delete, |txn, [], [], [workspace]| {
-            if workspace_id == WorkspaceIdRef::Main {
-                Err("the main workspace cannot be removed")?;
-            }
-
+        self.store.transact_(allow, &[], &branches, &delete, |txn, _, _, workspaces| {
+            let [workspace] = workspaces else { unreachable!("one workspace per op") };
             match workspace.status()? {
                 Status::Clean => (),
                 Status::Untracked | Status::Modified => {
@@ -181,8 +183,12 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         allow: &BTreeSet<SafeguardKind>,
     ) -> Result<()> {
+        let held = self.held(workspace_id)?;
+        let left = held.as_deref().filter(|held| *held != change_id);
+        let branches: Vec<BranchOp> = [change_id].into_iter().chain(left).map(BranchOp::Update).collect();
         let update = [WorkspaceOp::Update { id: workspace_id }];
-        self.store.transact(allow, &[], &[BranchOp::Update(change_id)], &update, |txn, [], [_to], [workspace]| {
+        self.store.transact_(allow, &[], &branches, &update, |txn, _, _, workspaces| {
+            let [workspace] = workspaces else { unreachable!("one workspace per op") };
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
             if workspace.status()? == Status::Modified {
                 txn.check(Safeguard::Uncommitted { workspace: workspace_id.into_owned() });
@@ -191,6 +197,11 @@ impl Cabaret {
             workspace.head = Head::Change(change_id.to_owned());
             Ok(())
         })
+    }
+
+    /// The change `workspace_id` holds, read before any lock is taken.
+    fn held(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<Option<ChangeId>> {
+        self.store.query(|txn| Ok(txn.workspace(workspace_id)?.change().cloned()))
     }
 
     /// Whether a workspace sits at the default location for the change it holds, which names it
