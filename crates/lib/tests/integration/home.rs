@@ -2,12 +2,25 @@
 
 use std::collections::BTreeSet;
 
-use cabaret_lib::Reviewing;
+use cabaret_lib::{Reviewing, Tag};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
 
-fn home(fixture: &Fixture) -> String { fixture.cabaret.home_page(&alice()).unwrap().to_string() }
+/// Alice's home page as text, with what is tagged archived marked so, since text carries no tags.
+fn home(fixture: &Fixture) -> String {
+    let mut out = String::new();
+    for line in fixture.cabaret.home_page(&alice()).unwrap().lines {
+        for segment in line.segments {
+            out.push_str(&segment.text);
+            if segment.tag == Some(Tag::Archived) {
+                out.push_str(" (archived)");
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
 
 /// Trunk is drawn only where it is selected, as the fixture's main workspace has it checked out;
 /// as mere context under every stack it is dropped.

@@ -127,7 +127,7 @@ impl Page {
 
     /// `○` marks the selected changes, `◌` ancestors shown as context, and `»` a label that
     /// plumbing pushed right of its depth position. Each change is labelled by its title, or its id
-    /// when untitled, and marked when archived.
+    /// when untitled, and tagged apart when archived.
     /// Connected components render one after another, each starting with a root on the left
     /// margin; every row leads to its change, and a change whose stack sits directly below it
     /// folds that stack away.
@@ -146,11 +146,12 @@ impl Page {
                 if row.pushed {
                     line = line.push(Segment::tagged("»", Tag::Muted));
                 }
-                let tag = if node.selected { Tag::ChangeId } else { Tag::Muted };
+                let tag = match (node.archived, node.selected) {
+                    (true, _) => Tag::Archived,
+                    (false, true) => Tag::ChangeId,
+                    (false, false) => Tag::Muted,
+                };
                 line = line.push(Segment::tagged(name(row.id, node.title.as_deref()), tag));
-                if node.archived {
-                    line = line.push(Segment::tagged(" (archived)", Tag::Muted));
-                }
                 line.leading_to(Target::Change { change: row.id.clone(), context: !node.selected })
             })
             .collect();

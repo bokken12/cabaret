@@ -179,6 +179,7 @@ function targetAt(page: Page, position: vscode.Position): Target | undefined {
 const themed = (color: string): vscode.DecorationRenderOptions => ({ color: new vscode.ThemeColor(color) });
 
 const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
+  Archived: themed("disabledForeground"),
   Heading: { fontWeight: "bold" },
   ChangeId: themed("textLink.foreground"),
   Revision: themed("textPreformat.foreground"),

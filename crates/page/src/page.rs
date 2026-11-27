@@ -52,6 +52,7 @@ pub enum NextStep {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(string_enum))]
 pub enum Tag {
+    Archived,
     Heading,
     ChangeId,
     Revision,
