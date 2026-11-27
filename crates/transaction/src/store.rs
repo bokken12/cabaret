@@ -236,6 +236,12 @@ impl Store {
 
         txn.confirm()?;
 
+        // TODO(joel): all of this post-processing winds up feeling a little awkward, I wonder if we could generalize or
+        // simplify it a bit? E.g., just spitballing, maybe every ordinary operation is really just a ref move that can
+        // be built up, sometimes with some arbitrary extra work done after non-atomically (e.g. workspace deletion,
+        // etc). Maybe it'd even be cleaner if operations directly described the log entries they wanted to insert into
+        // the metadata rather than creating these mutable representations and then checking what mutated within them?
+
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
         for (id, metadata) in metadata_ids.iter().zip(&metadata) {
