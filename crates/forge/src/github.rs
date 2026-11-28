@@ -375,7 +375,8 @@ impl GitHub {
                     pull_request.timeline_items.nodes = earlier;
                     return Ok(pull_request);
                 }
-                after.clone_from(&pull_request.timeline_items.page_info.end_cursor);
+                let cursor = pull_request.timeline_items.page_info.end_cursor;
+                after = Some(cursor.ok_or("GitHub promised a next page of events without saying where it starts")?);
             }
         })
     }
