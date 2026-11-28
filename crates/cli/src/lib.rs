@@ -62,7 +62,8 @@ pub fn run() -> Result<()> {
         Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,
         Command::Sync => {
-            for (change, reason) in cabaret()?.sync()? {
+            let cabaret = cabaret()?;
+            for (change, reason) in ignoring_sigpipe(|| cabaret.sync())? {
                 println!("kept {change}: {reason}");
             }
         }
@@ -79,10 +80,22 @@ pub fn run() -> Result<()> {
                 Some(dir) => dir,
                 None => std::env::current_dir()?,
             };
-            Cabaret::init(&dir, from.as_deref())?;
+            ignoring_sigpipe(|| Cabaret::init(&dir, from.as_deref()))?;
         }
         Command::Workspace { command } => command.run(&cabaret()?)?,
     }
 
     Ok(())
+}
+
+/// Run `f` with SIGPIPE ignored rather than fatal, as `main` leaves it. gix talks to origin
+/// through a child process (`ssh`, `git-upload-pack`) and may write to it after it has closed its
+/// end, which is an error for gix to handle, not a reason to die mid-sync.
+fn ignoring_sigpipe<T>(f: impl FnOnce() -> T) -> T {
+    // SAFETY: only the disposition of a signal nothing here handles is changed.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
+    let out = f();
+    // SAFETY: as above.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+    out
 }
