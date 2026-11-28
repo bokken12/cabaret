@@ -102,7 +102,11 @@ impl Cabaret {
         let cursor = cabaret_config::get::<ForgeCursor>(&repo)?;
         let updated = github.updated(cursor.map(|cursor| cursor.0))?;
         for pull_request in &updated {
-            self.import_pull_request(&github.pull_request(pull_request.number)?, pull_request.open)?;
+            // Asked first of what listing says, which spares fetching a history only to skip it.
+            let change_id: ChangeId = pull_request.head_ref_name.parse()?;
+            if self.imports(&change_id, pull_request.is_cross_repository, pull_request.open)? {
+                self.import_pull_request(&github.pull_request(pull_request.number)?, pull_request.open)?;
+            }
         }
         // At or after rather than after: a pull request can change again within the second.
         if let Some(latest) = updated.iter().map(|pull_request| pull_request.at).max() {
@@ -111,17 +115,23 @@ impl Cabaret {
         Ok(())
     }
 
-    /// Record `pull_request`'s history in the log of the change named for its head branch. One
-    /// no longer `open` is skipped unless that change already has a log: a pull request closed
+    /// Whether a pull request with head branch `change_id` is imported. One from a fork is not,
+    /// and nor is one no longer `open` unless its change already has a log: a pull request closed
     /// before anything here knew of it is not worth a change of its own.
-    pub fn import_pull_request(&self, pull_request: &PullRequest, open: bool) -> Result<()> {
+    fn imports(&self, change_id: &ChangeIdRef, is_cross_repository: bool, open: bool) -> Result<bool> {
         // TODO-someday(joel): a fork's head branch is not on origin, so has no change to be the log of.
-        if pull_request.is_cross_repository {
-            return Ok(());
+        if is_cross_repository {
+            return Ok(false);
         }
-        let change_id = pull_request.change()?;
         let known = self.store.repo.to_thread_local().try_find_reference(&change_id.log_ref())?.is_some();
-        if !open && !known {
+        Ok(open || known)
+    }
+
+    /// Record `pull_request`'s history in the log of the change named for its head branch, if it
+    /// is imported; see [`Self::imports`].
+    pub fn import_pull_request(&self, pull_request: &PullRequest, open: bool) -> Result<()> {
+        let change_id = pull_request.change()?;
+        if !self.imports(&change_id, pull_request.is_cross_repository, open)? {
             return Ok(());
         }
         self.store.import_forge_events(&change_id, &pull_request.events()?)

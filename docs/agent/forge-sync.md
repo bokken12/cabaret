@@ -50,13 +50,13 @@ Every imported commit carries its forge event id. Nothing links a local write to
 - `Cabaret::import_forge_events`, which writes and joins event commits and skips events the log already holds.
 - `cabaret-forge`, whose `github` module holds the GraphQL query for a pull request's history, lenient response types, and the reading of that history as events. Opening is synthesized under the pull request's own id, since GitHub keeps no event for it.
 - `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses the `curl` crate gix already builds, so it adds no dependencies and nothing is async.
+- The import in `cab sync`, after origin's logs are merged and before anything is pushed: it lists the pull requests changed since the time kept in git config as `cabaret.forge.imported` (those open, the first time), and imports the history of each that is not from a fork and is either open or already has a log. Without a GitHub origin or a token it does nothing.
 
 ## Remaining
 
-1. **Read-only import in `cab sync`.** List what changed since a locally kept time, import each history, and skip forks.
-2. **Outbound, single-value fields.** Open a pull request; push title and base.
-3. **Outbound approval.** Endorsing approves, with the endorser's own token.
-4. **Landing through the forge**, including recognising squash merges.
+1. **Outbound, single-value fields.** Open a pull request; push title and base.
+2. **Outbound approval.** Endorsing approves, with the endorser's own token.
+3. **Landing through the forge**, including recognising squash merges.
 
 Needed before the import runs against a real repository: `cab sync` reporting push results per ref, and following a branch another tool force-pushed.
 
@@ -65,7 +65,8 @@ Needed before the import runs against a real repository: `cab sync` reporting pu
 - **Pull request authors never endorse.** GitHub does not let an author approve their own pull request, so every imported one has an owner who has not endorsed. Opening could count as endorsing.
 - **Owners need not review every line.** The intended end state is that an owner must endorse and is offered every file, but is not required to review each. Until then a GitHub approver who marks nothing blocks landing, and is overridden.
 - **Base changes do not strictly replace parents.** An event can only remove the old base and add the new one, so a parent added only in Cabaret survives.
-- **Cost of polling.** Listing is one REST request per sync and each changed pull request one GraphQL request; neither is conditional yet, though REST lists support `ETag`s.
+- **Cost of polling.** Listing is one REST request per sync and each imported pull request one GraphQL request, one after another; neither is conditional yet, though REST lists support `ETag`s.
+- **A sync fails when the forge does.** An error from GitHub, a rate limit included, fails the whole sync before it pushes.
 - **Paging is untested.** No recorded pull request has more than one page of events.
 - **A per-repository setting** saying a dedicated bridge exists, so other devices stop polling.
 - **Two versions serializing one event differently** write it twice. Importing skips an event id the log holds, which does not cover two devices importing at once.

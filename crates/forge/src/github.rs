@@ -310,10 +310,13 @@ impl TimelineItem {
 }
 
 /// A pull request as listing finds it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Updated {
     pub number: u64,
     pub open: bool,
+    pub head_ref_name: String,
+    /// Whether the head branch lives in a fork rather than beside the base.
+    pub is_cross_repository: bool,
     /// When anything about the pull request last changed, its events included.
     pub at: TimestampS,
 }
@@ -323,6 +326,21 @@ struct Listed {
     number: u64,
     state: String,
     updated_at: String,
+    head: ListedBranch,
+    base: ListedBranch,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListedBranch {
+    #[serde(rename = "ref")]
+    name: String,
+    /// `None` for a fork since deleted.
+    repo: Option<ListedRepository>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct ListedRepository {
+    id: u64,
 }
 
 const API: &str = "https://api.github.com";
@@ -366,14 +384,21 @@ impl GitHub {
                 self.owner, self.name
             );
             let listed: Vec<Listed> = self.request(&url, None)?;
-            for pull_request in &listed {
+            let full = listed.len() == PER_PAGE;
+            for pull_request in listed {
                 let at = time(&pull_request.updated_at)?;
                 if since.is_some_and(|since| at < since) {
                     return Ok(updated);
                 }
-                updated.push(Updated { number: pull_request.number, open: pull_request.state == "open", at });
+                updated.push(Updated {
+                    number: pull_request.number,
+                    open: pull_request.state == "open",
+                    is_cross_repository: pull_request.head.repo != pull_request.base.repo,
+                    head_ref_name: pull_request.head.name,
+                    at,
+                });
             }
-            if listed.len() < PER_PAGE {
+            if !full {
                 break;
             }
         }
