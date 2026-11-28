@@ -134,6 +134,7 @@ dependencies = [
  "libc",
  "nonempty-collections",
  "strum",
+ "tempfile",
 ]
 
 [[package]]
