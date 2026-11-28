@@ -167,6 +167,7 @@ dependencies = [
  "expect-test",
  "gix",
  "jiff",
+ "libc",
  "napi",
  "napi-build",
  "napi-derive",

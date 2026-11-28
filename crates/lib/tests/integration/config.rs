@@ -1,7 +1,7 @@
 //! Settings live in git config: writing one rewrites the scope's file, and the writer reads the
 //! new value back without reopening.
 
-use cabaret_lib::{FetchInterval, Hints, Identity, Scope};
+use cabaret_lib::{Hints, Identity, Scope, SyncInterval};
 use expect_test::expect;
 
 use super::fixture::{Fixture, bob};
@@ -111,8 +111,8 @@ fn hints_parse_as_git_booleans() {
 }
 
 #[test]
-fn fetch_interval_parses_as_seconds_with_zero_never() {
-    let parsed = ["60", "0", "-1", "1m"].map(|value| (value, value.parse::<FetchInterval>()));
+fn sync_interval_parses_as_seconds_with_zero_never() {
+    let parsed = ["60", "0", "-1", "1m"].map(|value| (value, value.parse::<SyncInterval>()));
     expect![[r#"
         [
             (

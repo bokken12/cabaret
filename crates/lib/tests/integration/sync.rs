@@ -1,23 +1,23 @@
-//! Fetching: exchanging logs with origin both ways, merging writes that did not see each other,
+//! Syncing: exchanging logs with origin both ways, merging writes that did not see each other,
 //! and fast-forwarding the branches of origin's default branch and of open changes either way.
 
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, carol, id};
 
-/// A bare origin holding `child` on `main`, and a repository on it that has fetched once, as bob.
-fn fetched() -> (Fixture, Fixture) {
+/// A bare origin holding `child` on `main`, and a repository on it that has synced once, as bob.
+fn synced() -> (Fixture, Fixture) {
     let origin = Fixture::bare();
     origin.root("main", &[("greeting.txt", "hello\n")]);
     origin.create("child", "main", &alice());
     let clone = Fixture::with_origin(&origin);
-    assert!(clone.cabaret.fetch().unwrap().is_empty());
+    assert!(clone.cabaret.sync().unwrap().is_empty());
     (origin, clone)
 }
 
 #[test]
 fn takes_origin_logs_and_branches() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     assert_eq!(clone.log_head("child"), origin.log_head("child"));
     expect![[r#"
         child
@@ -32,10 +32,10 @@ fn takes_origin_logs_and_branches() {
 
 #[test]
 fn pushes_local_logs() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     clone.create("local", "main", &bob());
     clone.cabaret.set_title(&id("child"), Some("Retitled".into())).unwrap();
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     assert_eq!(origin.log_head("local"), clone.log_head("local"));
     assert_eq!(origin.log_head("child"), clone.log_head("child"));
     expect![[r#"
@@ -51,11 +51,11 @@ fn pushes_local_logs() {
 
 #[test]
 fn writes_that_did_not_see_each_other_merge() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     origin.cabaret.add_owner(&id("child"), &carol()).unwrap();
     origin.cabaret.set_description(&id("child"), Some("Described at origin.".into())).unwrap();
     clone.cabaret.set_title(&id("child"), Some("Retitled".into())).unwrap();
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     assert_eq!(origin.log_head("child"), clone.log_head("child"));
     expect![[r#"
         child
@@ -77,10 +77,10 @@ fn writes_that_did_not_see_each_other_merge() {
 
 #[test]
 fn conflicting_descriptions_keep_both() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     origin.cabaret.set_description(&id("child"), Some("Described at origin.\n".into())).unwrap();
     clone.cabaret.set_description(&id("child"), Some("Described by bob.\n".into())).unwrap();
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     expect![[r#"
         <<<<<<< bob@example.com
         Described by bob.
@@ -93,34 +93,34 @@ fn conflicting_descriptions_keep_both() {
 }
 
 #[test]
-fn fetching_again_changes_nothing() {
-    let (origin, clone) = fetched();
+fn syncing_again_changes_nothing() {
+    let (origin, clone) = synced();
     origin.cabaret.add_owner(&id("child"), &carol()).unwrap();
     clone.cabaret.set_title(&id("child"), Some("Retitled".into())).unwrap();
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     let merged = clone.log_head("child");
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     assert_eq!(clone.log_head("child"), merged);
     assert_eq!(origin.log_head("child"), merged);
 }
 
 #[test]
 fn fast_forwards_branches_behind_origin() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     origin.commit("main", &[("main.txt", "main\n")]);
     origin.commit("child", &[("child.txt", "child\n")]);
-    assert!(clone.cabaret.fetch().unwrap().is_empty());
+    assert!(clone.cabaret.sync().unwrap().is_empty());
     assert_eq!(clone.tip("main"), origin.tip("main"));
     assert_eq!(clone.tip("child"), origin.tip("child"));
 }
 
 #[test]
 fn pushes_branches_ahead_of_origin() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     clone.commit("main", &[("main.txt", "main\n")]);
     clone.commit("child", &[("child.txt", "child\n")]);
     clone.create("local", "main", &bob());
-    assert!(clone.cabaret.fetch().unwrap().is_empty());
+    assert!(clone.cabaret.sync().unwrap().is_empty());
     assert_eq!(origin.tip("main"), clone.tip("main"));
     assert_eq!(origin.tip("child"), clone.tip("child"));
     assert_eq!(origin.tip("local"), clone.tip("local"));
@@ -128,10 +128,10 @@ fn pushes_branches_ahead_of_origin() {
 
 #[test]
 fn leaves_diverged_branches() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     let theirs = origin.commit("child", &[("child.txt", "alice\n")]);
     let ours = clone.commit("child", &[("child.txt", "bob\n")]);
-    let kept = clone.cabaret.fetch().unwrap();
+    let kept = clone.cabaret.sync().unwrap();
     expect![[r#"{"child": "diverged from origin"}"#]].assert_eq(&format!("{kept:?}"));
     assert_eq!(origin.tip("child"), theirs);
     assert_eq!(clone.tip("child"), ours);
@@ -139,32 +139,32 @@ fn leaves_diverged_branches() {
 
 #[test]
 fn leaves_plain_branches() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     origin.branch("theirs", "main");
     clone.branch("ours", "main");
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     assert!(!clone.cabaret.changes().unwrap().contains(&id("theirs")));
     assert!(!origin.cabaret.changes().unwrap().contains(&id("ours")));
 }
 
 #[test]
 fn leaves_archived_branches() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     let before = origin.tip("child");
     clone.commit("child", &[("child.txt", "child\n")]);
     clone.archive("child");
-    clone.cabaret.fetch().unwrap();
+    clone.cabaret.sync().unwrap();
     assert!(origin.snapshot("child").archived);
     assert_eq!(origin.tip("child"), before);
 }
 
 #[test]
 fn carries_local_changes_into_fast_forward() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     clone.checkout("child");
     clone.write("greeting.txt", "hello, bob\n");
     origin.commit("child", &[("child.txt", "child\n")]);
-    assert!(clone.cabaret.fetch().unwrap().is_empty());
+    assert!(clone.cabaret.sync().unwrap().is_empty());
     assert_eq!(clone.tip("child"), origin.tip("child"));
     expect![[r#"
         dirty
@@ -176,12 +176,12 @@ fn carries_local_changes_into_fast_forward() {
 
 #[test]
 fn leaves_branches_whose_local_changes_conflict() {
-    let (origin, clone) = fetched();
+    let (origin, clone) = synced();
     clone.checkout("child");
     clone.write("greeting.txt", "hello, bob\n");
     let before = clone.tip("child");
     origin.commit("child", &[("greeting.txt", "hello, alice\n")]);
-    let kept = clone.cabaret.fetch().unwrap();
+    let kept = clone.cabaret.sync().unwrap();
     expect![[r#"{"child": "local changes in workspace main conflict with origin's"}"#]].assert_eq(&format!("{kept:?}"));
     assert_eq!(clone.tip("child"), before);
     expect![[r#"
@@ -195,5 +195,5 @@ fn leaves_branches_whose_local_changes_conflict() {
 fn needs_origin() {
     let fixture = Fixture::new();
     expect![[r#"The remote named "origin" did not exist"#]]
-        .assert_eq(&format!("{:?}", fixture.cabaret.fetch().unwrap_err()));
+        .assert_eq(&format!("{:?}", fixture.cabaret.sync().unwrap_err()));
 }

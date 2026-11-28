@@ -18,7 +18,7 @@ impl Cabaret {
     /// The synced branches are origin's default branch and those of unarchived changes with a
     /// log; any other is fetched only as `refs/remotes/origin/*`. Returns the synced branches left
     /// apart from origin's, each with why.
-    pub fn fetch(&self) -> Result<BTreeMap<ChangeId, String>> {
+    pub fn sync(&self) -> Result<BTreeMap<ChangeId, String>> {
         let repo = self.store.repo.to_thread_local();
         let mut remote = repo.find_remote("origin")?;
         let logs = format!("{}*", ChangeIdRef::LOG_REF_PREFIX);

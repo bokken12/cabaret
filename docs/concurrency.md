@@ -8,7 +8,7 @@ Nonetheless, there are a few cases where Cabaret must consider concurrency. In p
 
 ## Locking
 
-We should only ever perform one mutating operation on a change at a time. Git already provides this guarantee on its refs, but we want to expand the critical section to avoid TOCTOU issues. Therefore, Cabaret keeps its own per-change locks in `.git/cabaret`.
+We should only ever perform one mutating operation on a change at a time. Git already provides this guarantee on its refs, but we want to expand the critical section to avoid TOCTOU issues. Therefore, Cabaret keeps its own per-change locks in the git common dir.
 
 ## Pattern
 
