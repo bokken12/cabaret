@@ -1,1 +1,1 @@
-{"action":"endorse","endorser":"me+claude@joel.place"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/cli/src/config.rs","revision":"797e6ba8ae008ee7fe2cfd20efb9897b4f59f79c"}
