@@ -1,0 +1,1 @@
+Add `cab change title [--change C] [TITLE]` over the existing `Cabaret::set_title`; an omitted or blank title clears it, as `describe` does for descriptions.
