@@ -1,10 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.toml","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/forge_cursor.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/lib.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/github.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/Cargo.toml","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/fixture.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/import.rs","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/forge-sync.md","revision":"4c45eaf3d043f869305e2374a1667a722a8ebfe6"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
