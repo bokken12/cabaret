@@ -306,11 +306,13 @@ impl Fixture {
         RevisionId(self.repo.find_reference(&id(change).log_ref()).unwrap().peel_to_commit().unwrap().id)
     }
 
-    /// `change`'s log head as text: its message, then every file with its content.
-    pub fn metadata(&self, change: &str) -> String {
-        let head = self.log_head(change);
-        let mut out = format!("message {:?}\n", self.message(head));
-        for (path, content) in self.files_at(head) {
+    /// `change`'s log head as text; see [`Self::metadata_at`].
+    pub fn metadata(&self, change: &str) -> String { self.metadata_at(self.log_head(change)) }
+
+    /// The log commit `revision` as text: its message, then every file with its content.
+    pub fn metadata_at(&self, revision: RevisionId) -> String {
+        let mut out = format!("message {:?}\n", self.message(revision));
+        for (path, content) in self.files_at(revision) {
             writeln!(out, "{path} {content:?}").unwrap();
         }
         out

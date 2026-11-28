@@ -3,7 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Reviewing, RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath};
+use crate::{
+    ForgeEventId, Reviewing, RevisionId, TimestampS, change_id::ChangeId, error::Result, identity::Identity,
+    repo_path::RepoPath,
+};
 
 // TODO-someday(joel): move log to its own crate?
 // TODO-someday(joel): allow format evolution. protos? versioned?
@@ -34,6 +37,19 @@ impl LogAction {
             _ => None,
         }
     }
+}
+
+/// One event of a forge change's history, as importing it records in the log. Everything here is
+/// the forge's own, so that every device importing the event records the same.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeEvent {
+    pub id: ForgeEventId,
+    /// Who the forge says caused the event.
+    pub author: Identity,
+    /// When the forge says it happened.
+    pub time: TimestampS,
+    /// What the event does to the change.
+    pub actions: Vec<LogAction>,
 }
 
 /// The actions stored as `text`, in the order they were taken.
