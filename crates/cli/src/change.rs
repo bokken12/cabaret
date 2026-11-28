@@ -185,6 +185,12 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
+    /// Set the change's title; omitted or blank clears it.
+    Title {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        title: Option<String>,
+    },
     /// Search a change's diff for TODOs to be resolved within it.
     Todo {
         #[arg(long, add = change_completer())]
@@ -319,6 +325,9 @@ impl ChangeCommand {
                 println!("{change} reviewing: {reviewing}");
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
+            ChangeCommand::Title { change, title } => {
+                cabaret.set_title(&or_current(change)?, title.filter(|title| !title.trim().is_empty()))?;
+            }
             ChangeCommand::Todo { change: _ } => {
                 return Err("change todo is not implemented yet".into());
             }
