@@ -6,6 +6,7 @@ mod create;
 mod describe;
 mod discard;
 mod endorse;
+mod export;
 mod fixture;
 mod home;
 mod import;

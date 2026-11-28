@@ -279,6 +279,24 @@ impl<'txn> Metadata<'txn> {
         Ok(metadata)
     }
 
+    /// This change as its forge change has it: what its forge events alone fold to, in the
+    /// forge's own order. `None` when its log holds none, so no forge change is known for it.
+    /// Where this differs from the change itself, a write here has yet to reach the forge.
+    pub fn forge(&self) -> Result<Option<Self>> {
+        let Some(head) = self.commit else { return Ok(None) };
+        let mut events: Vec<_> =
+            commits(&self.txn.repo, head)?.into_iter().filter(|(_, commit)| commit.forge_event.is_some()).collect();
+        if events.is_empty() {
+            return Ok(None);
+        }
+        events.sort_by_key(|(id, commit)| commit.fold_order(*id));
+        let mut forge = Metadata::new(self.txn, self.id.clone(), self.commit);
+        for action in events.iter().flat_map(|(_, commit)| &commit.actions) {
+            forge.apply(action);
+        }
+        Ok(Some(forge))
+    }
+
     fn apply(&mut self, action: &LogAction) {
         match action {
             LogAction::AddOwner { owner } => {

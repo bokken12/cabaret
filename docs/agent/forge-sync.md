@@ -51,10 +51,11 @@ Every imported commit carries its forge event id. Nothing links a local write to
 - `cabaret-forge`, whose `github` module holds the GraphQL query for a pull request's history, lenient response types, and the reading of that history as events. Opening is synthesized under the pull request's own id, since GitHub keeps no event for it.
 - `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses the `curl` crate gix already builds, so it adds no dependencies and nothing is async.
 - The import in `cab sync`, after origin's logs are merged and before anything is pushed: it lists the pull requests changed since the time kept in git config as `cabaret.forge.imported` (those open, the first time), and imports the history of each that is not from a fork and is either open or already has a log. Without a GitHub origin or a token it does nothing.
+- `Cabaret::forge_exports`, which says what exporting would do without doing it: for each open change you own with one parent, open its forge change once it is up for review, or bring that forge change's title and parent level with it. It compares the change with `Metadata::forge`, the fold of its forge events alone.
 
 ## Remaining
 
-1. **Outbound, single-value fields.** Open a pull request; push title and base.
+1. **Outbound, single-value fields.** Carry out `forge_exports` against GitHub after `cab sync` pushes.
 2. **Outbound approval.** Endorsing approves, with the endorser's own token.
 3. **Landing through the forge**, including recognising squash merges.
 

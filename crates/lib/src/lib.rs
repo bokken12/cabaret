@@ -17,4 +17,5 @@ pub use cabaret_types::{
     WorkspaceIdRef, is_binary, line_diff, log, safeguard,
 };
 pub use gix;
+pub use sync::ForgeExport;
 pub use workspace::Prune;

@@ -6,10 +6,19 @@ use std::{
 use cabaret_config::{ForgeCursor, Scope};
 use cabaret_forge::github::{GitHub, PullRequest};
 use cabaret_transaction::BranchOp;
-use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId, log::ForgeEvent};
+use cabaret_types::{ChangeId, ChangeIdRef, Result, Reviewing, RevisionId, log::ForgeEvent};
 use gix::{bstr::ByteSlice, protocol::handshake::Ref, remote::Direction};
 
 use crate::cabaret::Cabaret;
+
+/// Something a change says that its forge change does not yet, for exporting to make so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForgeExport {
+    /// The change is up for review and has no forge change.
+    Open { change: ChangeId, title: String, parent: ChangeId },
+    /// The forge change's title or parent, whichever is given, is not the change's.
+    Edit { change: ChangeId, title: Option<String>, parent: Option<ChangeId> },
+}
 
 impl Cabaret {
     pub fn has_origin(&self) -> bool { self.store.repo.to_thread_local().remote_names().contains(b"origin".as_bstr()) }
@@ -135,6 +144,42 @@ impl Cabaret {
             return Ok(());
         }
         self.store.import_forge_events(&change_id, &pull_request.events()?)
+    }
+
+    /// What exporting would do: for each open change you own that lands into one parent, open
+    /// its forge change once it is up for review, or bring that forge change's title and parent
+    /// level with it. A forge event folds after every write that did not see it, so a change
+    /// differs from its forge change only by writes made knowing what the forge had.
+    pub fn forge_exports(&self) -> Result<Vec<ForgeExport>> {
+        self.store.query(|txn| {
+            let you = txn.identity()?;
+            let mut exports = Vec::new();
+            for change in changes_under(&txn.repo, ChangeIdRef::LOG_REF_PREFIX)? {
+                let metadata = txn.metadata(&change)?;
+                // TODO-someday(joel): a change with several parents has no one branch to be its base.
+                let [parent] = metadata.parents.iter().collect::<Vec<_>>()[..] else { continue };
+                if metadata.archived || !metadata.owners.contains(&you) {
+                    continue;
+                }
+                match metadata.forge()? {
+                    None if metadata.reviewing == Reviewing::None => {}
+                    None => exports.push(ForgeExport::Open {
+                        title: metadata.title.clone().unwrap_or_else(|| change.to_string()),
+                        parent: parent.clone(),
+                        change,
+                    }),
+                    Some(forge) => {
+                        // A forge change cannot go untitled, so a cleared title stays here.
+                        let title = metadata.title.clone().filter(|_| metadata.title != forge.title);
+                        let parent = (forge.parents != metadata.parents).then(|| parent.clone());
+                        if title.is_some() || parent.is_some() {
+                            exports.push(ForgeExport::Edit { change, title, parent });
+                        }
+                    }
+                }
+            }
+            Ok(exports)
+        })
     }
 
     /// Record in `change_id`'s log those of `events`, from its forge change's history, that it
