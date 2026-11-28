@@ -1,5 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"7ed403038fbffe04aef4a7f7e91cb5c2df6c8341"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/Cargo.toml","revision":"7ed403038fbffe04aef4a7f7e91cb5c2df6c8341"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/lib.rs","revision":"7ed403038fbffe04aef4a7f7e91cb5c2df6c8341"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/tests/sync.rs","revision":"7ed403038fbffe04aef4a7f7e91cb5c2df6c8341"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/bugs.md","revision":"7ed403038fbffe04aef4a7f7e91cb5c2df6c8341"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
