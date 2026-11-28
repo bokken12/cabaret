@@ -1,0 +1,1 @@
+Rename fetch to sync, per docs/terminology.md: `cab sync`, `Cabaret::sync`, the node binding and VS Code's periodic sync, and `SyncInterval` with its config key `cabaret.vscode.syncInterval`. Words for git's own fetch step stay.
