@@ -1,6 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/export.rs","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/mod.rs","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/forge-sync.md","revision":"826d74fc0e81a0e456206c8bd22562ff668c3df9"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
