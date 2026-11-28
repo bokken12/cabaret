@@ -20,6 +20,17 @@ use nonempty_collections::NEBTreeSet;
 
 use crate::cabaret::{Cabaret, Rebase};
 
+/// Transaction locks are tempfiles, so a host exiting mid-transaction, as an extension host does
+/// on reload, would leave them held. The cleanup is the signal-safe one, as other threads may
+/// still be running.
+#[napi_derive::module_init]
+fn remove_locks_on_exit() {
+    extern "C" fn remove_locks() { gix::tempfile::registry::cleanup_tempfiles_signal_safe() }
+    // SAFETY: `remove_locks` is a plain function that never unwinds.
+    let registered = unsafe { libc::atexit(remove_locks) };
+    assert_eq!(registered, 0, "atexit registration failed");
+}
+
 /// How the workspace a [`Cabaret`] was opened in reaches a change's files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[napi(discriminant = "kind", object_from_js = false)]
