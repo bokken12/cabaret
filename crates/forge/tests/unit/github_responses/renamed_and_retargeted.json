@@ -1,0 +1,62 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "id": "PR_kwDOSmvcWM71arpc",
+        "createdAt": "2026-07-23T14:31:45Z",
+        "title": "Report a conflicted rebase as its outcome, not a failure",
+        "isDraft": false,
+        "baseRefName": "main",
+        "headRefName": "rebase-outcome",
+        "isCrossRepository": false,
+        "author": {
+          "login": "carol"
+        },
+        "timelineItems": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpPPAAABn4-tgwgBqzI4MzkxNzE5Mjg5"
+          },
+          "nodes": [
+            {
+              "__typename": "RenamedTitleEvent",
+              "id": "RTE_lADOSmvcWM8AAAABJ6GDic8AAAAGnAhnkg",
+              "createdAt": "2026-07-23T14:32:06Z",
+              "actor": {
+                "login": "carol"
+              },
+              "previousTitle": "rebase-outcome",
+              "currentTitle": "Report a conflicted rebase as its outcome, not a failure"
+            },
+            {
+              "__typename": "BaseRefChangedEvent",
+              "id": "BRCE_lADOSmvcWM8AAAABJ6GDic8AAAAGnAvzwQ",
+              "createdAt": "2026-07-23T14:36:38Z",
+              "actor": {
+                "login": "bob"
+              },
+              "previousRefName": "fix-and-commit",
+              "currentRefName": "main"
+            },
+            {
+              "__typename": "MergedEvent",
+              "id": "ME_lADOSmvcWM8AAAABJ6GDic8AAAAGnEdBOQ",
+              "createdAt": "2026-07-23T15:52:21Z",
+              "actor": {
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "ClosedEvent",
+              "id": "CE_lADOSmvcWM8AAAABJ6GDic8AAAAGnEdBeQ",
+              "createdAt": "2026-07-23T15:52:21Z",
+              "actor": {
+                "login": "bob"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

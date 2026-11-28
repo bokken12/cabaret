@@ -1,0 +1,72 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "id": "PR_kwDOSmvcWM8AAAABG1q_Gg",
+        "createdAt": "2026-10-06T03:53:06Z",
+        "title": "Highlight the next action beneath the lump of metadata",
+        "isDraft": false,
+        "baseRefName": "main",
+        "headRefName": "highlight-next-step",
+        "isCrossRepository": true,
+        "author": {
+          "login": "alice"
+        },
+        "timelineItems": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpPPAAABoRcApmgBqzMyNzAzMjY5NTYw"
+          },
+          "nodes": [
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOSmvcWM8AAAABQ6TD9w",
+              "submittedAt": "2026-10-06T14:23:19Z",
+              "author": {
+                "login": "bob"
+              },
+              "state": "CHANGES_REQUESTED"
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "id": "RRE_lADOSmvcWM8AAAABVRjCz88AAAAHmPYP5g",
+              "createdAt": "2026-10-06T19:27:17Z",
+              "actor": {
+                "login": "alice"
+              },
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOSmvcWM8AAAABRIX4EA",
+              "submittedAt": "2026-10-07T15:34:32Z",
+              "author": {
+                "login": "bob"
+              },
+              "state": "APPROVED"
+            },
+            {
+              "__typename": "MergedEvent",
+              "id": "ME_lADOSmvcWM8AAAABVRjCz88AAAAHnURKJw",
+              "createdAt": "2026-10-07T15:34:41Z",
+              "actor": {
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "ClosedEvent",
+              "id": "CE_lADOSmvcWM8AAAABVRjCz88AAAAHnURKuA",
+              "createdAt": "2026-10-07T15:34:41Z",
+              "actor": {
+                "login": "bob"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

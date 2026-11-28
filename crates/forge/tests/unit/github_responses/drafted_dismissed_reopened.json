@@ -1,0 +1,124 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "id": "PR_drafted",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "title": "Drafted",
+        "isDraft": false,
+        "baseRefName": "main",
+        "headRefName": "drafted",
+        "isCrossRepository": false,
+        "author": null,
+        "timelineItems": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": [
+            {
+              "__typename": "ReadyForReviewEvent",
+              "id": "RFRE_1",
+              "createdAt": "2026-01-02T00:00:00Z",
+              "actor": {
+                "login": "alice"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "id": "RRE_1",
+              "createdAt": "2026-01-02T00:00:01Z",
+              "actor": {
+                "login": "alice"
+              },
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "id": "RRE_2",
+              "createdAt": "2026-01-02T00:00:02Z",
+              "actor": {
+                "login": "alice"
+              },
+              "requestedReviewer": {
+                "__typename": "Team"
+              }
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_1",
+              "submittedAt": "2026-01-03T00:00:00Z",
+              "author": {
+                "login": "bob"
+              },
+              "state": "COMMENTED"
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_2",
+              "submittedAt": "2026-01-03T00:00:01Z",
+              "author": {
+                "login": "bob"
+              },
+              "state": "DISMISSED"
+            },
+            {
+              "__typename": "ReviewDismissedEvent",
+              "id": "RDE_1",
+              "createdAt": "2026-01-04T00:00:00Z",
+              "actor": {
+                "login": "alice"
+              },
+              "review": {
+                "author": {
+                  "login": "bob"
+                }
+              }
+            },
+            {
+              "__typename": "ReviewRequestRemovedEvent",
+              "id": "RRRE_1",
+              "createdAt": "2026-01-04T00:00:01Z",
+              "actor": {
+                "login": "alice"
+              },
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "ConvertToDraftEvent",
+              "id": "CTDE_1",
+              "createdAt": "2026-01-05T00:00:00Z",
+              "actor": {
+                "login": "alice"
+              }
+            },
+            {
+              "__typename": "ClosedEvent",
+              "id": "CE_1",
+              "createdAt": "2026-01-06T00:00:00Z",
+              "actor": {
+                "login": "alice"
+              }
+            },
+            {
+              "__typename": "ReopenedEvent",
+              "id": "RE_1",
+              "createdAt": "2026-01-07T00:00:00Z",
+              "actor": null
+            },
+            {
+              "__typename": "SomeEventAddedLater",
+              "id": "X_1"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

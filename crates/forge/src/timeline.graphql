@@ -1,0 +1,31 @@
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      createdAt
+      title
+      isDraft
+      baseRefName
+      headRefName
+      isCrossRepository
+      author { login }
+      timelineItems(first: 100, itemTypes: [RENAMED_TITLE_EVENT, BASE_REF_CHANGED_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, PULL_REQUEST_REVIEW, REVIEW_DISMISSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REOPENED_EVENT, CLOSED_EVENT, MERGED_EVENT]) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          __typename
+          ... on RenamedTitleEvent { id createdAt actor { login } previousTitle currentTitle }
+          ... on BaseRefChangedEvent { id createdAt actor { login } previousRefName currentRefName }
+          ... on ReviewRequestedEvent { id createdAt actor { login } requestedReviewer { __typename ... on User { login } } }
+          ... on ReviewRequestRemovedEvent { id createdAt actor { login } requestedReviewer { __typename ... on User { login } } }
+          ... on PullRequestReview { id submittedAt author { login } state }
+          ... on ReviewDismissedEvent { id createdAt actor { login } review { author { login } } }
+          ... on ReadyForReviewEvent { id createdAt actor { login } }
+          ... on ConvertToDraftEvent { id createdAt actor { login } }
+          ... on ReopenedEvent { id createdAt actor { login } }
+          ... on ClosedEvent { id createdAt actor { login } }
+          ... on MergedEvent { id createdAt actor { login } }
+        }
+      }
+    }
+  }
+}

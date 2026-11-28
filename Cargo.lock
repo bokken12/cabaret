@@ -146,6 +146,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabaret-forge"
+version = "0.0.0"
+dependencies = [
+ "cabaret-types",
+ "expect-test",
+ "jiff",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cabaret-lib"
 version = "0.0.0"
 dependencies = [
