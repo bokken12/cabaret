@@ -12,4 +12,4 @@ However there can be some exceptions, such as change descriptions, which simply 
 
 In addition to shared state, Cabaret sometimes has local state: primarily configs recording user preferences. Again we prefer to piggyback on existing stores: putting data in the git or vscode configs as appropriate.
 
-For each change, a user's review state can be represented as a map from file name to: (base hash, tip hash, timestamp) representing the time at which they reviewed the base -> tip diff.
+For each change, a user's review state can be represented as a map from file name to tip hash, representing the latest revision of that file they've reviewed.
