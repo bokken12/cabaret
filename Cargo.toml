@@ -28,6 +28,7 @@ new_without_default = "allow"
 
 [workspace.dependencies]
 cabaret-config = { path = "crates/config" }
+cabaret-forge = { path = "crates/forge" }
 cabaret-lib = { path = "crates/lib" }
 cabaret-page = { path = "crates/page" }
 cabaret-transaction = { path = "crates/transaction" }

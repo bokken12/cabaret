@@ -3,6 +3,8 @@ use std::{
     process::Command,
 };
 
+use cabaret_config::{ForgeCursor, Scope};
+use cabaret_forge::github::{GitHub, PullRequest};
 use cabaret_transaction::BranchOp;
 use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId, log::ForgeEvent};
 use gix::{bstr::ByteSlice, protocol::handshake::Ref, remote::Direction};
@@ -13,8 +15,9 @@ impl Cabaret {
     pub fn has_origin(&self) -> bool { self.store.repo.to_thread_local().remote_names().contains(b"origin".as_bstr()) }
 
     /// Exchange logs and branches with origin, so that both end up having seen every write either
-    /// has: fetch origin's, merge each of its logs into the local one, bring each synced branch
-    /// level with origin's, then push every local log and each synced branch origin is behind on.
+    /// has: fetch origin's, merge each of its logs into the local one, import what its forge
+    /// changes have seen happen (see [`Self::import_forge`]), bring each synced branch level with
+    /// origin's, then push every local log and each synced branch origin is behind on.
     /// The synced branches are origin's default branch and those of unarchived changes with a
     /// log; any other is fetched only as `refs/remotes/origin/*`. Returns the synced branches left
     /// apart from origin's, each with why.
@@ -35,6 +38,7 @@ impl Cabaret {
         for change_id in changes_under(&repo, ChangeIdRef::ORIGIN_LOG_REF_PREFIX)? {
             self.store.merge_origin_log(&change_id)?;
         }
+        self.import_forge()?;
 
         let mut synced = BTreeSet::new();
         for reference in &fetched.ref_map.remote_refs {
@@ -77,6 +81,50 @@ impl Cabaret {
             Err(format!("pushing to origin failed: {}", String::from_utf8_lossy(&pushed.stderr).trim_end()))?;
         }
         Ok(apart)
+    }
+
+    // TODO-someday(joel): a repository setting saying a dedicated bridge imports, so that other
+    // devices stop asking the forge.
+    /// Import the history of each of origin's pull requests that has changed since the last
+    /// import, or of each open one the first time. Does nothing when origin is not on a forge
+    /// Cabaret knows, or nothing here authenticates to it: whoever can reach the forge imports
+    /// for everyone, through the logs.
+    fn import_forge(&self) -> Result<()> {
+        let mut repo = self.store.repo.to_thread_local();
+        // Config is read as of opening, and an earlier import may have moved the cursor since.
+        repo.reload()?;
+        let Some(url) = repo.find_remote("origin")?.url(Direction::Fetch).map(|url| url.to_bstring().to_string())
+        else {
+            return Ok(());
+        };
+        let Some((owner, name)) = GitHub::repository(&url) else { return Ok(()) };
+        let Some(github) = GitHub::connect(owner, name)? else { return Ok(()) };
+        let cursor = cabaret_config::get::<ForgeCursor>(&repo)?;
+        let updated = github.updated(cursor.map(|cursor| cursor.0))?;
+        for pull_request in &updated {
+            self.import_pull_request(&github.pull_request(pull_request.number)?, pull_request.open)?;
+        }
+        // At or after rather than after: a pull request can change again within the second.
+        if let Some(latest) = updated.iter().map(|pull_request| pull_request.at).max() {
+            cabaret_config::set(&repo, Scope::Local, &ForgeCursor(latest))?;
+        }
+        Ok(())
+    }
+
+    /// Record `pull_request`'s history in the log of the change named for its head branch. One
+    /// no longer `open` is skipped unless that change already has a log: a pull request closed
+    /// before anything here knew of it is not worth a change of its own.
+    pub fn import_pull_request(&self, pull_request: &PullRequest, open: bool) -> Result<()> {
+        // TODO-someday(joel): a fork's head branch is not on origin, so has no change to be the log of.
+        if pull_request.is_cross_repository {
+            return Ok(());
+        }
+        let change_id = pull_request.change()?;
+        let known = self.store.repo.to_thread_local().try_find_reference(&change_id.log_ref())?.is_some();
+        if !open && !known {
+            return Ok(());
+        }
+        self.store.import_forge_events(&change_id, &pull_request.events()?)
     }
 
     /// Record in `change_id`'s log those of `events`, from its forge change's history, that it

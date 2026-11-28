@@ -1,5 +1,6 @@
-//! Importing a forge change's events into a change's log.
+//! Importing a forge change's events into a change's log, and a pull request's history as them.
 
+use cabaret_forge::github::{PullRequest, Response};
 use cabaret_lib::{
     Identity,
     log::{ForgeEvent, LogAction},
@@ -95,4 +96,58 @@ fn starts_log_of_change_without_one() {
     fixture.cabaret.import_forge_events(&id("plain"), &[renamed("renamed-1", 20, "Renamed")]).unwrap();
     assert_eq!(fixture.parents(fixture.log_head("plain")).len(), 1);
     expect![[r#"Some("Renamed")"#]].assert_eq(&format!("{:?}", fixture.snapshot("plain").title));
+}
+
+/// A pull request GitHub answered with, retargeted from `fix-and-commit` to `main` and merged; its
+/// head is `rebase-outcome`.
+fn retargeted() -> PullRequest {
+    let response = include_str!("../../../forge/tests/unit/github_responses/renamed_and_retargeted.json");
+    serde_json::from_str::<Response>(response).unwrap().pull_request().unwrap()
+}
+
+/// `main` with `fix-and-commit` and `rebase-outcome` plain branches on it.
+fn branches() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.branch("fix-and-commit", "main");
+    fixture.branch("rebase-outcome", "main");
+    fixture
+}
+
+#[test]
+fn pull_request_history_becomes_change_of_its_head_branch() {
+    let fixture = branches();
+    fixture.cabaret.import_pull_request(&retargeted(), true).unwrap();
+    expect![[r#"
+        rebase-outcome
+          parents main
+          owners github:carol
+          archived
+          reviewing owners
+          title Report a conflicted rebase as its outcome, not a failure
+          base main
+          diff (empty)
+    "#]]
+    .assert_eq(&fixture.describe("rebase-outcome"));
+}
+
+#[test]
+fn closed_pull_request_is_imported_only_into_log_already_there() {
+    let fixture = branches();
+    fixture.cabaret.import_pull_request(&retargeted(), false).unwrap();
+    assert!(!fixture.has_log("rebase-outcome"));
+    fixture.cabaret.set_title(&id("rebase-outcome"), Some("Titled here".into())).unwrap();
+    fixture.cabaret.import_pull_request(&retargeted(), false).unwrap();
+    expect![[r#"Some("Report a conflicted rebase as its outcome, not a failure")"#]]
+        .assert_eq(&format!("{:?}", fixture.snapshot("rebase-outcome").title));
+}
+
+#[test]
+fn pull_request_from_fork_is_skipped() {
+    let fixture = branches();
+    fixture.branch("highlight-next-step", "main");
+    let response = include_str!("../../../forge/tests/unit/github_responses/reviewed.json");
+    let forked = serde_json::from_str::<Response>(response).unwrap().pull_request().unwrap();
+    fixture.cabaret.import_pull_request(&forked, true).unwrap();
+    assert!(!fixture.has_log("highlight-next-step"));
 }

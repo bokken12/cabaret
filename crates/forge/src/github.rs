@@ -313,6 +313,7 @@ impl TimelineItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Updated {
     pub number: u64,
+    pub open: bool,
     /// When anything about the pull request last changed, its events included.
     pub at: TimestampS,
 }
@@ -320,6 +321,7 @@ pub struct Updated {
 #[derive(Debug, Deserialize)]
 struct Listed {
     number: u64,
+    state: String,
     updated_at: String,
 }
 
@@ -346,9 +348,9 @@ impl GitHub {
     }
 
     /// Reach `owner`'s repository `name` as whoever `GITHUB_TOKEN` authenticates, or else whoever
-    /// `gh` is logged in as.
-    pub fn connect(owner: &str, name: &str) -> Result<Self> {
-        Ok(Self { token: token()?, owner: owner.to_owned(), name: name.to_owned() })
+    /// `gh` is logged in as; `None` when neither names anyone.
+    pub fn connect(owner: &str, name: &str) -> Result<Option<Self>> {
+        Ok(token()?.map(|token| Self { token, owner: owner.to_owned(), name: name.to_owned() }))
     }
 
     /// The pull requests changed at or after `since`, open or not; without `since`, those open now.
@@ -369,7 +371,7 @@ impl GitHub {
                 if since.is_some_and(|since| at < since) {
                     return Ok(updated);
                 }
-                updated.push(Updated { number: pull_request.number, at });
+                updated.push(Updated { number: pull_request.number, open: pull_request.state == "open", at });
             }
             if listed.len() < PER_PAGE {
                 break;
@@ -428,15 +430,14 @@ impl GitHub {
     }
 }
 
-fn token() -> Result<String> {
+fn token() -> Result<Option<String>> {
     if let Ok(token) = std::env::var("GITHUB_TOKEN")
         && !token.is_empty()
     {
-        return Ok(token);
+        return Ok(Some(token));
     }
-    let gh = Command::new("gh").args(["auth", "token"]).output();
-    match gh {
-        Ok(gh) if gh.status.success() => Ok(String::from_utf8(gh.stdout)?.trim().to_owned()),
-        _ => Err("no GitHub token: set GITHUB_TOKEN or log in with `gh auth login`")?,
+    match Command::new("gh").args(["auth", "token"]).output() {
+        Ok(gh) if gh.status.success() => Ok(Some(String::from_utf8(gh.stdout)?.trim().to_owned())),
+        _ => Ok(None),
     }
 }

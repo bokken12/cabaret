@@ -301,6 +301,11 @@ impl Fixture {
         self.repo.find_commit(revision.0).unwrap().message_raw().unwrap().to_string()
     }
 
+    /// Whether anything has been logged about `change`.
+    pub fn has_log(&self, change: &str) -> bool {
+        self.repo.try_find_reference(&id(change).log_ref()).unwrap().is_some()
+    }
+
     /// The commit `change`'s log ref points at.
     pub fn log_head(&self, change: &str) -> RevisionId {
         RevisionId(self.repo.find_reference(&id(change).log_ref()).unwrap().peel_to_commit().unwrap().id)

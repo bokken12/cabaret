@@ -15,6 +15,7 @@ napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "dep:libc", "cabaret-ty
 
 [dependencies]
 cabaret-config.workspace = true
+cabaret-forge.workspace = true
 cabaret-page.workspace = true
 cabaret-transaction.workspace = true
 cabaret-types.workspace = true
@@ -27,6 +28,7 @@ nonempty-collections.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 
 [build-dependencies]
