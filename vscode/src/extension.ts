@@ -109,34 +109,34 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Fetch from origin every `cabaret.vscode.fetchInterval` seconds, so that others' changes show up
+ * Sync with origin every `cabaret.vscode.syncInterval` seconds, so that others' changes show up
  * without anyone asking; the refs they move refresh the pages.
  */
-function fetchPeriodically(): vscode.Disposable {
+function syncPeriodically(): vscode.Disposable {
   let stopped = false;
   let next: NodeJS.Timeout | undefined;
-  // An unreachable origin fails every fetch, so report only the first of a run of failures.
+  // An unreachable origin fails every sync, so report only the first of a run of failures.
   let failing = false;
-  const fetch = async () => {
+  const sync = async () => {
     const cabaret = openCabaret();
-    const seconds = cabaret.fetchInterval();
+    const seconds = cabaret.syncInterval();
     if (stopped || seconds === null || !cabaret.hasOrigin()) {
       return;
     }
     try {
-      await cabaret.fetch();
+      await cabaret.sync();
       failing = false;
     } catch (error) {
       if (!failing) {
-        void vscode.window.showErrorMessage(`Cabaret: fetching from origin failed: ${errorMessage(error)}`);
+        void vscode.window.showErrorMessage(`Cabaret: syncing with origin failed: ${errorMessage(error)}`);
       }
       failing = true;
     }
     if (!stopped) {
-      next = setTimeout(() => void reporting(fetch), seconds * 1000);
+      next = setTimeout(() => void reporting(sync), seconds * 1000);
     }
   };
-  void reporting(fetch);
+  void reporting(sync);
   return new vscode.Disposable(() => {
     stopped = true;
     clearTimeout(next);
@@ -280,7 +280,7 @@ class PageProvider
   private readonly updates = new Map<string, Promise<void>>();
   /** The pages on screen, to tell those coming into view. */
   private onScreen = new Set<string>();
-  /** Started with the first page rendered, as a window not on a repository has none to watch or fetch into. */
+  /** Started with the first page rendered, as a window not on a repository has none to watch or sync with. */
   private watcher: vscode.Disposable | undefined;
   /**
    * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
@@ -331,7 +331,7 @@ class PageProvider
     if (route.kind === "Home") {
       this.homeSection = route.section;
     }
-    this.watcher ??= vscode.Disposable.from(this.watchRepository(), fetchPeriodically());
+    this.watcher ??= vscode.Disposable.from(this.watchRepository(), syncPeriodically());
     return openCabaret().page(route);
   }
 

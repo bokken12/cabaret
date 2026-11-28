@@ -6,7 +6,7 @@ mod sync;
 mod workspace;
 
 pub use cabaret::{Cabaret, Rebase};
-pub use cabaret_config::{FetchInterval, Hints, Prefix, Scope, Setting};
+pub use cabaret_config::{Hints, Prefix, Scope, Setting, SyncInterval};
 pub use cabaret_page::{
     DiffView, FileTree, Fold, Home, HomeGraph, HomeNode, HomeSection, Line, NextStep, Page, Route, Segment, TabCounts,
     Tag, Target, name,
