@@ -317,6 +317,15 @@ impl CabaretJs {
         self.blocking(move |cabaret| attempt(cabaret.remove_parent(&change, &parent, &allow))).await
     }
 
+    #[napi]
+    pub async fn fix_parents(
+        &self,
+        change: ChangeId,
+        allow: BTreeSet<SafeguardKind>,
+    ) -> napi::Result<Either<(), Refused>> {
+        self.blocking(move |cabaret| attempt(cabaret.fix_parents(&change, &allow))).await
+    }
+
     /// Record that git's user.email has reviewed `files` of `change` up to `head`, defaulting to
     /// its tip.
     #[napi]

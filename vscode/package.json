@@ -138,6 +138,10 @@
         "title": "Cabaret: Remove Parent"
       },
       {
+        "command": "cabaret.fixParents",
+        "title": "Cabaret: Fix Parents"
+      },
+      {
         "command": "cabaret.land",
         "title": "Cabaret: Land"
       },
@@ -292,6 +296,11 @@
       {
         "command": "cabaret.removeParent",
         "key": "shift+1 p r",
+        "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.fixParents",
+        "key": "shift+1 p f",
         "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
