@@ -1,7 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.toml","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/Cargo.toml","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/github.rs","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/timeline.graphql","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/github.rs","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/forge-sync.md","revision":"a0842f86a8662abde96bd03915408087f65834a6"}
+{"action":"mark","reviewer":"me@joel.place","file":"Cargo.lock","revision":"98f6c1250f852a48527d776f5a3a5bca20827e50"}
