@@ -1,11 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/Cargo.toml","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/github.rs","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/lib.rs","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/timeline.graphql","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/runner.rs","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/github.rs","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/github_responses/drafted_dismissed_reopened.json","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/github_responses/renamed_and_retargeted.json","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/github_responses/reviewed.json","revision":"f01816c558b11659642fda42048d59d630507ccb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/tests/unit/mod.rs","revision":"f01816c558b11659642fda42048d59d630507ccb"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
