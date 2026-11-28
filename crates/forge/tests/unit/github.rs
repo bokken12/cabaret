@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use cabaret_forge::github::Response;
+use cabaret_forge::github::{GitHub, Response};
 use cabaret_types::log;
 use expect_test::{Expect, expect};
 
@@ -100,4 +100,30 @@ fn drafted_dismissed_reopened() {
               {"action":"set-archived","archived":false}
         "#]],
     );
+}
+
+#[test]
+fn repository_is_read_from_github_urls_only() {
+    let urls = [
+        "git@github.com:owner/name",
+        "git@github.com:owner/name.git",
+        "ssh://git@github.com/owner/name.git",
+        "https://github.com/owner/name/",
+        "https://gitlab.com/owner/name",
+        "https://github.com/owner",
+        "https://github.com/owner/name/tree",
+        "/srv/git/name.git",
+    ];
+    let repositories: Vec<_> = urls.map(|url| format!("{url} {:?}\n", GitHub::repository(url))).into_iter().collect();
+    expect![[r#"
+        git@github.com:owner/name Some(("owner", "name"))
+        git@github.com:owner/name.git Some(("owner", "name"))
+        ssh://git@github.com/owner/name.git Some(("owner", "name"))
+        https://github.com/owner/name/ Some(("owner", "name"))
+        https://gitlab.com/owner/name None
+        https://github.com/owner None
+        https://github.com/owner/name/tree None
+        /srv/git/name.git None
+    "#]]
+    .assert_eq(&repositories.concat());
 }

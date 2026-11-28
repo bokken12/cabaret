@@ -24,7 +24,7 @@ So for a field written from both sides, the value is the latest forge event's un
 
 ### Everyone Is the Bridge
 
-Any device with a forge credential imports during `cab fetch`. Identical event commits make any number of importers safe, so a solo user, a small team, and a headless `cab fetch` run by a bot are the same code. Actions the forge attributes to a person (an approval, a comment) can only be pushed by that person's own device.
+Any device with a forge credential imports during `cab sync`. Identical event commits make any number of importers safe, so a solo user, a small team, and a headless `cab sync` run by a bot are the same code. Actions the forge attributes to a person (an approval, a comment) can only be pushed by that person's own device.
 
 ### Linkage
 
@@ -48,24 +48,26 @@ Every imported commit carries its forge event id. Nothing links a local write to
 
 - The fold rule and the `forge-event` marker, in `crates/transaction/src/metadata.rs`.
 - `Cabaret::import_forge_events`, which writes and joins event commits and skips events the log already holds.
+- `cabaret-forge`, whose `github` module holds the GraphQL query for a pull request's history, lenient response types, and the reading of that history as events. Opening is synthesized under the pull request's own id, since GitHub keeps no event for it.
+- `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses octocrab, run to completion on a runtime of its own so nothing outside the crate is async.
 
 ## Remaining
 
-1. **`cabaret-forge` crate, without network.** The GraphQL query for a pull request's history, lenient response types, and the reading of that history as events. Opening is synthesized under the pull request's own id, since GitHub keeps no event for it.
-2. **HTTP client.** octocrab to begin with. Find open pull requests cheaply, then fetch the history only of those that changed, a page at a time.
-3. **Read-only import in `cab fetch`.**
-4. **Outbound, single-value fields.** Open a pull request; push title and base.
-5. **Outbound approval.** Endorsing approves, with the endorser's own token.
-6. **Landing through the forge**, including recognising squash merges.
+1. **Read-only import in `cab sync`.** List what changed since a locally kept time, import each history, and skip forks.
+2. **Outbound, single-value fields.** Open a pull request; push title and base.
+3. **Outbound approval.** Endorsing approves, with the endorser's own token.
+4. **Landing through the forge**, including recognising squash merges.
 
-Needed before the import runs against a real repository: `cab fetch` reporting push results per ref, and following a branch another tool force-pushed.
+Needed before the import runs against a real repository: `cab sync` reporting push results per ref, and following a branch another tool force-pushed.
 
 ## Open Questions
 
 - **Pull request authors never endorse.** GitHub does not let an author approve their own pull request, so every imported one has an owner who has not endorsed. Opening could count as endorsing.
 - **Owners need not review every line.** The intended end state is that an owner must endorse and is offered every file, but is not required to review each. Until then a GitHub approver who marks nothing blocks landing, and is overridden.
 - **Base changes do not strictly replace parents.** An event can only remove the old base and add the new one, so a parent added only in Cabaret survives.
-- **Cost of polling.** GraphQL has no conditional requests and can time out on expensive queries, so listing every open pull request with its history in one query is not viable on a large repository. REST lists support `ETag`s.
+- **Cost of polling.** Listing is one REST request per sync and each changed pull request one GraphQL request; neither is conditional yet, though REST lists support `ETag`s.
+- **Dependencies.** octocrab brings about a hundred crates for two calls. The `curl` crate is already built for gix.
+- **Paging is untested.** No recorded pull request has more than one page of events.
 - **A per-repository setting** saying a dedicated bridge exists, so other devices stop polling.
 - **Two versions serializing one event differently** write it twice. Importing skips an event id the log holds, which does not cover two devices importing at once.
 - **A renamed login** changes the identity an old event imports under.

@@ -1,12 +1,18 @@
 //! GitHub pull requests, read as the history of events that importing records in a change's log.
 
+use std::process::Command;
+
 use cabaret_types::{
     ChangeId, Identity, Result, Reviewing, TimestampS,
     log::{ForgeEvent, LogAction},
 };
+use octocrab::{Octocrab, params};
 use serde::Deserialize;
+use serde_json::json;
+use tokio::runtime::Runtime;
 
-/// The GraphQL query answered by a [`Response`]; takes `owner`, `name`, and `number`.
+/// The GraphQL query answered by a [`Response`]; takes `owner`, `name`, `number`, and `after`, the
+/// cursor its page of events follows.
 pub const TIMELINE_QUERY: &str = include_str!("timeline.graphql");
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +63,7 @@ pub struct TimelineItems {
 #[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     pub has_next_page: bool,
+    pub end_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,9 +183,8 @@ impl PullRequest {
     // TODO-someday(joel): what a review asks of its author's files is not recorded: owners are to
     // endorse, and may come to review only what they choose to.
     pub fn events(&self) -> Result<Vec<ForgeEvent>> {
-        // TODO(joel): fetch every page.
         if self.timeline_items.page_info.has_next_page {
-            Err(format!("pull request {} has more events than one page holds", self.id))?;
+            Err(format!("pull request {} is missing the later pages of its events", self.id))?;
         }
         let items = &self.timeline_items.nodes;
         let title = items.iter().find_map(|item| match item {
@@ -280,5 +286,110 @@ impl TimelineItem {
             | Self::Other => return Ok(None),
         };
         event(id, at, actor.as_ref(), actions).map(Some)
+    }
+}
+
+/// A pull request as listing finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Updated {
+    pub number: u64,
+    /// When anything about the pull request last changed, its events included.
+    pub at: TimestampS,
+}
+
+/// A repository on GitHub, reached through its API.
+pub struct GitHub {
+    // octocrab is async where the rest of Cabaret is not, so each call runs to completion here.
+    runtime: Runtime,
+    octocrab: Octocrab,
+    owner: String,
+    name: String,
+}
+
+impl GitHub {
+    /// The owner and name of the repository `url` fetches from; `None` when it is not GitHub's.
+    pub fn repository(url: &str) -> Option<(&str, &str)> {
+        let path = ["git@github.com:", "ssh://git@github.com/", "https://github.com/"]
+            .iter()
+            .find_map(|prefix| url.strip_prefix(prefix))?;
+        let (owner, name) = path.strip_suffix('/').unwrap_or(path).split_once('/')?;
+        let name = name.strip_suffix(".git").unwrap_or(name);
+        (!owner.is_empty() && !name.is_empty() && !name.contains('/')).then_some((owner, name))
+    }
+
+    /// Reach `owner`'s repository `name` as whoever `GITHUB_TOKEN` authenticates, or else whoever
+    /// `gh` is logged in as.
+    pub fn connect(owner: &str, name: &str) -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        let token = token()?;
+        let octocrab = runtime.block_on(async { Octocrab::builder().personal_token(token).build() })?;
+        Ok(Self { runtime, octocrab, owner: owner.to_owned(), name: name.to_owned() })
+    }
+
+    /// The pull requests changed at or after `since`, open or not; without `since`, those open now.
+    pub fn updated(&self, since: Option<TimestampS>) -> Result<Vec<Updated>> {
+        let state = match since {
+            Some(_) => params::State::All,
+            None => params::State::Open,
+        };
+        self.runtime.block_on(async {
+            let mut page = self
+                .octocrab
+                .pulls(&self.owner, &self.name)
+                .list()
+                .state(state)
+                .sort(params::pulls::Sort::Updated)
+                .direction(params::Direction::Descending)
+                .per_page(100)
+                .send()
+                .await?;
+            let mut updated = Vec::new();
+            loop {
+                for pull_request in &page.items {
+                    let at = pull_request.updated_at.ok_or("GitHub listed a pull request without its update time")?;
+                    if since.is_some_and(|since| at.timestamp() < since) {
+                        return Ok(updated);
+                    }
+                    updated.push(Updated { number: pull_request.number, at: at.timestamp() });
+                }
+                match self.octocrab.get_page(&page.next).await? {
+                    Some(next) => page = next,
+                    None => return Ok(updated),
+                }
+            }
+        })
+    }
+
+    /// Pull request `number` with every page of its events.
+    pub fn pull_request(&self, number: u64) -> Result<PullRequest> {
+        self.runtime.block_on(async {
+            let mut after: Option<String> = None;
+            let mut earlier = Vec::new();
+            loop {
+                let variables = json!({ "owner": self.owner, "name": self.name, "number": number, "after": after });
+                let data: Data =
+                    self.octocrab.graphql(&json!({ "query": TIMELINE_QUERY, "variables": variables })).await?;
+                let mut pull_request = data.repository.pull_request;
+                earlier.append(&mut pull_request.timeline_items.nodes);
+                if !pull_request.timeline_items.page_info.has_next_page {
+                    pull_request.timeline_items.nodes = earlier;
+                    return Ok(pull_request);
+                }
+                after.clone_from(&pull_request.timeline_items.page_info.end_cursor);
+            }
+        })
+    }
+}
+
+fn token() -> Result<String> {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN")
+        && !token.is_empty()
+    {
+        return Ok(token);
+    }
+    let gh = Command::new("gh").args(["auth", "token"]).output();
+    match gh {
+        Ok(gh) if gh.status.success() => Ok(String::from_utf8(gh.stdout)?.trim().to_owned()),
+        _ => Err("no GitHub token: set GITHUB_TOKEN or log in with `gh auth login`")?,
     }
 }

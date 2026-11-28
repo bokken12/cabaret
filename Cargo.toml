@@ -44,8 +44,10 @@ napi = { version = "3.16.3", default-features = false, features = ["napi8", "tok
 napi-build = "2.7.0"
 napi-derive = "3.7.2"
 nonempty-collections = "1.5.0"
+octocrab = { version = "0.54.9", default-features = false, features = ["default-client", "rustls", "rustls-ring"] }
 ref-cast = "1.0.27"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 strum = { version = "0.28.0", features = ["derive"] }
 tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["rt"] }
