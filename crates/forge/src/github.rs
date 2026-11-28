@@ -6,10 +6,9 @@ use cabaret_types::{
     ChangeId, Identity, Result, Reviewing, TimestampS,
     log::{ForgeEvent, LogAction},
 };
-use octocrab::{Octocrab, params};
-use serde::Deserialize;
+use curl::easy::{Easy, List};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
-use tokio::runtime::Runtime;
 
 /// The GraphQL query answered by a [`Response`]; takes `owner`, `name`, `number`, and `after`, the
 /// cursor its page of events follows.
@@ -17,18 +16,39 @@ pub const TIMELINE_QUERY: &str = include_str!("timeline.graphql");
 
 #[derive(Debug, Deserialize)]
 pub struct Response {
-    pub data: Data,
+    pub data: Option<Data>,
+    #[serde(default)]
+    pub errors: Vec<ResponseError>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResponseError {
+    pub message: String,
+}
+
+impl Response {
+    /// The pull request asked for, unless GitHub answered with errors instead.
+    pub fn pull_request(self) -> Result<PullRequest> {
+        let pull_request = self.data.and_then(|data| data.repository).and_then(|repository| repository.pull_request);
+        match pull_request {
+            Some(pull_request) if self.errors.is_empty() => Ok(pull_request),
+            _ => {
+                let messages: Vec<_> = self.errors.into_iter().map(|error| error.message).collect();
+                Err(format!("GitHub refused the query: {}", messages.join("; ")))?
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Data {
-    pub repository: Repository,
+    pub repository: Option<Repository>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Repository {
-    pub pull_request: PullRequest,
+    pub pull_request: Option<PullRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -297,11 +317,19 @@ pub struct Updated {
     pub at: TimestampS,
 }
 
+#[derive(Debug, Deserialize)]
+struct Listed {
+    number: u64,
+    updated_at: String,
+}
+
+const API: &str = "https://api.github.com";
+/// How many pull requests one page of a listing holds, the most GitHub allows.
+const PER_PAGE: usize = 100;
+
 /// A repository on GitHub, reached through its API.
 pub struct GitHub {
-    // octocrab is async where the rest of Cabaret is not, so each call runs to completion here.
-    runtime: Runtime,
-    octocrab: Octocrab,
+    token: String,
     owner: String,
     name: String,
 }
@@ -320,65 +348,83 @@ impl GitHub {
     /// Reach `owner`'s repository `name` as whoever `GITHUB_TOKEN` authenticates, or else whoever
     /// `gh` is logged in as.
     pub fn connect(owner: &str, name: &str) -> Result<Self> {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let token = token()?;
-        let octocrab = runtime.block_on(async { Octocrab::builder().personal_token(token).build() })?;
-        Ok(Self { runtime, octocrab, owner: owner.to_owned(), name: name.to_owned() })
+        Ok(Self { token: token()?, owner: owner.to_owned(), name: name.to_owned() })
     }
 
     /// The pull requests changed at or after `since`, open or not; without `since`, those open now.
     pub fn updated(&self, since: Option<TimestampS>) -> Result<Vec<Updated>> {
         let state = match since {
-            Some(_) => params::State::All,
-            None => params::State::Open,
+            Some(_) => "all",
+            None => "open",
         };
-        self.runtime.block_on(async {
-            let mut page = self
-                .octocrab
-                .pulls(&self.owner, &self.name)
-                .list()
-                .state(state)
-                .sort(params::pulls::Sort::Updated)
-                .direction(params::Direction::Descending)
-                .per_page(100)
-                .send()
-                .await?;
-            let mut updated = Vec::new();
-            loop {
-                for pull_request in &page.items {
-                    let at = pull_request.updated_at.ok_or("GitHub listed a pull request without its update time")?;
-                    if since.is_some_and(|since| at.timestamp() < since) {
-                        return Ok(updated);
-                    }
-                    updated.push(Updated { number: pull_request.number, at: at.timestamp() });
+        let mut updated = Vec::new();
+        for page in 1.. {
+            let url = format!(
+                "{API}/repos/{}/{}/pulls?state={state}&sort=updated&direction=desc&per_page={PER_PAGE}&page={page}",
+                self.owner, self.name
+            );
+            let listed: Vec<Listed> = self.request(&url, None)?;
+            for pull_request in &listed {
+                let at = time(&pull_request.updated_at)?;
+                if since.is_some_and(|since| at < since) {
+                    return Ok(updated);
                 }
-                match self.octocrab.get_page(&page.next).await? {
-                    Some(next) => page = next,
-                    None => return Ok(updated),
-                }
+                updated.push(Updated { number: pull_request.number, at });
             }
-        })
+            if listed.len() < PER_PAGE {
+                break;
+            }
+        }
+        Ok(updated)
     }
 
     /// Pull request `number` with every page of its events.
     pub fn pull_request(&self, number: u64) -> Result<PullRequest> {
-        self.runtime.block_on(async {
-            let mut after: Option<String> = None;
-            let mut earlier = Vec::new();
-            loop {
-                let variables = json!({ "owner": self.owner, "name": self.name, "number": number, "after": after });
-                let data: Data =
-                    self.octocrab.graphql(&json!({ "query": TIMELINE_QUERY, "variables": variables })).await?;
-                let mut pull_request = data.repository.pull_request;
-                earlier.append(&mut pull_request.timeline_items.nodes);
-                if !pull_request.timeline_items.page_info.has_next_page {
-                    pull_request.timeline_items.nodes = earlier;
-                    return Ok(pull_request);
-                }
-                let cursor = pull_request.timeline_items.page_info.end_cursor;
-                after = Some(cursor.ok_or("GitHub promised a next page of events without saying where it starts")?);
+        let mut after: Option<String> = None;
+        let mut earlier = Vec::new();
+        loop {
+            let variables = json!({ "owner": self.owner, "name": self.name, "number": number, "after": after });
+            let query = serde_json::to_vec(&json!({ "query": TIMELINE_QUERY, "variables": variables }))?;
+            let response: Response = self.request(&format!("{API}/graphql"), Some(&query))?;
+            let mut pull_request = response.pull_request()?;
+            earlier.append(&mut pull_request.timeline_items.nodes);
+            if !pull_request.timeline_items.page_info.has_next_page {
+                pull_request.timeline_items.nodes = earlier;
+                return Ok(pull_request);
             }
-        })
+            let cursor = pull_request.timeline_items.page_info.end_cursor;
+            after = Some(cursor.ok_or("GitHub promised a next page of events without saying where it starts")?);
+        }
+    }
+
+    /// What GitHub answers at `url`: to a POST of `body` when given, else to a GET.
+    fn request<T: DeserializeOwned>(&self, url: &str, body: Option<&[u8]>) -> Result<T> {
+        let mut headers = List::new();
+        headers.append(&format!("Authorization: Bearer {}", self.token))?;
+        headers.append("Accept: application/vnd.github+json")?;
+        // GitHub refuses requests that do not say what sent them.
+        headers.append("User-Agent: cabaret")?;
+        let mut easy = Easy::new();
+        easy.url(url)?;
+        easy.http_headers(headers)?;
+        if let Some(body) = body {
+            easy.post(true)?;
+            easy.post_fields_copy(body)?;
+        }
+        let mut answer = Vec::new();
+        {
+            let mut transfer = easy.transfer();
+            transfer.write_function(|data| {
+                answer.extend_from_slice(data);
+                Ok(data.len())
+            })?;
+            transfer.perform()?;
+        }
+        let status = easy.response_code()?;
+        if !(200..300).contains(&status) {
+            Err(format!("GitHub answered {status} at {url}: {}", String::from_utf8_lossy(&answer).trim_end()))?;
+        }
+        Ok(serde_json::from_slice(&answer)?)
     }
 }
 

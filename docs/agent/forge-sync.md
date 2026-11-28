@@ -49,7 +49,7 @@ Every imported commit carries its forge event id. Nothing links a local write to
 - The fold rule and the `forge-event` marker, in `crates/transaction/src/metadata.rs`.
 - `Cabaret::import_forge_events`, which writes and joins event commits and skips events the log already holds.
 - `cabaret-forge`, whose `github` module holds the GraphQL query for a pull request's history, lenient response types, and the reading of that history as events. Opening is synthesized under the pull request's own id, since GitHub keeps no event for it.
-- `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses octocrab, run to completion on a runtime of its own so nothing outside the crate is async.
+- `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses the `curl` crate gix already builds, so it adds no dependencies and nothing is async.
 
 ## Remaining
 
@@ -66,7 +66,6 @@ Needed before the import runs against a real repository: `cab sync` reporting pu
 - **Owners need not review every line.** The intended end state is that an owner must endorse and is offered every file, but is not required to review each. Until then a GitHub approver who marks nothing blocks landing, and is overridden.
 - **Base changes do not strictly replace parents.** An event can only remove the old base and add the new one, so a parent added only in Cabaret survives.
 - **Cost of polling.** Listing is one REST request per sync and each changed pull request one GraphQL request; neither is conditional yet, though REST lists support `ETag`s.
-- **Dependencies.** octocrab brings about a hundred crates for two calls. The `curl` crate is already built for gix.
 - **Paging is untested.** No recorded pull request has more than one page of events.
 - **A per-repository setting** saying a dedicated bridge exists, so other devices stop polling.
 - **Two versions serializing one event differently** write it twice. Importing skips an event id the log holds, which does not cover two devices importing at once.

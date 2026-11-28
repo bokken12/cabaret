@@ -9,7 +9,7 @@ use expect_test::{Expect, expect};
 /// The events of the pull request in `response`, each as its id, time, and author over its actions.
 fn events(response: &str) -> String {
     let response: Response = serde_json::from_str(response).unwrap();
-    let pull_request = response.data.repository.pull_request;
+    let pull_request = response.pull_request().unwrap();
     let mut out = format!("change {}\n", pull_request.change().unwrap());
     for event in pull_request.events().unwrap() {
         writeln!(out, "{} at {} by {}", event.id, event.time, event.author).unwrap();
@@ -126,4 +126,14 @@ fn repository_is_read_from_github_urls_only() {
         /srv/git/name.git None
     "#]]
     .assert_eq(&repositories.concat());
+}
+
+#[test]
+fn refused_query_reports_githubs_errors() {
+    let response: Response = serde_json::from_str(
+        r#"{"data": {"repository": null}, "errors": [{"message": "Could not resolve to a Repository"}]}"#,
+    )
+    .unwrap();
+    expect!["GitHub refused the query: Could not resolve to a Repository"]
+        .assert_eq(&format!("{:?}", response.pull_request().unwrap_err()));
 }
