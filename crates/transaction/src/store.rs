@@ -5,15 +5,9 @@ use std::{
     time::Duration,
 };
 
-<<<<<<< forge-event-import
 use cabaret_types::{
-    ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, log::ForgeEvent, safeguard::SafeguardKind,
+    ChangeId, ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, log::ForgeEvent, safeguard::SafeguardKind,
 };
-||||||| base
-use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
-=======
-use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
->>>>>>> forge-event-fold
 use gix::{
     Repository, ThreadSafeRepository,
     fs::SharedPermissions,
@@ -369,18 +363,8 @@ impl Store {
         F: for<'txn> FnOnce(&'txn Metadata<'txn>) -> Result<Option<RefEdit>>,
     {
         let allow = BTreeSet::new();
-<<<<<<< forge-event-import
-        let txn =
-            Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
-        if let Some(edit) = f(txn.metadata(id)?)? {
-||||||| base
-        let txn =
-            Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
-        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
-=======
         let txn = Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id])?, &allow);
-        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
->>>>>>> forge-event-fold
+        if let Some(edit) = f(txn.metadata(id)?)? {
             txn.repo.edit_reference(edit)?;
         }
         Ok(())
