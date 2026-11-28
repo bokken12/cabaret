@@ -23,6 +23,6 @@ In practice obligations files are not expected to be placed arbitrarily deep in 
 
 The obligations system aims to be fairly expressive, allowing you to write things like "one of these reviewers or three of those reviewers or 3 days have passed", which cannot easily be written in `CODEOWNERS`, but to do so while keeping the ordinary cases short.
 
-## Reviewers
+## Owners
 
-In addition to the per-file obligations system, there are also per-change reviewers. They are assigned review for all files in the change, and must explicitly grant whole-change approval before it lands. The required number of such reviewers can be configured at the repository level or at do-not-inherit root subfolders.
+In addition to the per-file obligations system, there are also per-change owners. They are assigned review for all files in the change, and must explicitly grant whole-change endorsement before it lands. The required number of such owners can be configured at the repository level or at do-not-inherit root subfolders.
