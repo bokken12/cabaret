@@ -1,0 +1,1 @@
+An agent doc for forge sync: the design as built so far, the decisions made, the remaining stack, and the open questions.
