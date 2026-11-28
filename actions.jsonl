@@ -1,1 +1,1 @@
-{"action":"mark","reviewer":"me@joel.place","file":"crates/transaction/src/store.rs","revision":"78f369c12bab9295f2e87efff6c3adbe20cf6df3"}
+{"action":"set-archived","archived":true}
