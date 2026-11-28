@@ -1469,6 +1469,14 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `removed ${parent} as a parent of ${change}`;
 }
 
+async function fixParents(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const attempt = (allow: Set<SafeguardKind>) => cabaret.fixParents(change, allow);
+  if ((await despite(`Fix parents of ${change}`, "Fix Anyway", attempt)) === undefined) {
+    return undefined;
+  }
+  return `parents of ${change} are now ${words((await cabaret.change(change)).parents)}`;
+}
+
 /** The change among `changes` checked out in this window's workspace, if any. */
 async function changeHere(cabaret: Cabaret, changes: Iterable<ChangeId>): Promise<ChangeId | undefined> {
   for (const change of changes) {
@@ -1866,6 +1874,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
+    action("cabaret.fixParents", provider, fixParents),
     plannedSequence("cabaret.land", provider, planLand),
     sequencedAction("cabaret.rebase", provider, rebase),
     plannedSequence("cabaret.toggleArchived", provider, planToggleArchived),

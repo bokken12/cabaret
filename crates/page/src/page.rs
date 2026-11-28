@@ -390,7 +390,7 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
     let Some(step) = step else { return list("Next step:", std::iter::empty()) };
     let (key, text, changes) = match step {
         NextStep::AddCode => (None, "add code".to_owned(), BTreeSet::new()),
-        NextStep::FixParents => (None, "fix parents".to_owned(), BTreeSet::new()),
+        NextStep::FixParents => (owner.then_some("!pf"), "fix parents".to_owned(), BTreeSet::new()),
         NextStep::ResolveConflicts { files } => {
             (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
         }
