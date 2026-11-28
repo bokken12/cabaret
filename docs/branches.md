@@ -4,7 +4,7 @@ How should Cabaret changes relate to git branches? Should a branch always imply 
 
 ## Normal Operations
 
-For a typical Cabaret user, a change will correspond 1:1 with a branch. They will `cab create` the branch at its parent's tip and the metadata with the appropriate parent and title at the same time. They will operate on the change, committing to its branch and updating the metadata ref depending on the kind of operation they wish to perform, until the change is archived, at which point both refs can be deleted.
+For a typical Cabaret user, a change will correspond 1:1 with a branch. They will `cab change create` the branch at its parent's tip and the metadata with the appropriate parent and title at the same time. They will operate on the change, committing to its branch and updating the metadata ref depending on the kind of operation they wish to perform, until the change is archived, at which point both refs can be deleted.
 
 ## Branch Without Metadata
 
