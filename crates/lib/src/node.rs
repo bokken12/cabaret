@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use cabaret_config::FetchInterval;
+use cabaret_config::SyncInterval;
 use cabaret_page::{DiffView, HomeSection, Page, Route};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
@@ -179,21 +179,21 @@ impl CabaretJs {
             .await
     }
 
-    /// Seconds between background fetches from origin, or `None` for never.
+    /// Seconds between background syncs with origin, or `None` for never.
     #[napi]
-    pub fn fetch_interval(&self) -> napi::Result<Option<u32>> {
-        Ok(match self.cabaret.config::<FetchInterval>()?.unwrap_or_default() {
-            FetchInterval::Never => None,
-            FetchInterval::Seconds(seconds) => Some(seconds.get()),
+    pub fn sync_interval(&self) -> napi::Result<Option<u32>> {
+        Ok(match self.cabaret.config::<SyncInterval>()?.unwrap_or_default() {
+            SyncInterval::Never => None,
+            SyncInterval::Seconds(seconds) => Some(seconds.get()),
         })
     }
 
     #[napi]
     pub fn has_origin(&self) -> bool { self.cabaret.has_origin() }
 
-    // TODO-someday(joel): show the editor which branches fetch kept apart from origin's
+    // TODO-someday(joel): show the editor which branches sync kept apart from origin's
     #[napi]
-    pub async fn fetch(&self) -> napi::Result<()> { self.blocking(|cabaret| cabaret.fetch().map(drop)).await }
+    pub async fn sync(&self) -> napi::Result<()> { self.blocking(|cabaret| cabaret.sync().map(drop)).await }
 
     #[napi]
     pub fn common_dir(&self) -> napi::Result<String> { Ok(path_string(self.cabaret.common_dir())?) }

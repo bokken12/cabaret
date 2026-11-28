@@ -4,18 +4,18 @@ use cabaret_types::{Error, Result};
 
 use crate::Setting;
 
-/// How often editors fetch from origin in the background, stored as seconds, `0` for never.
+/// How often editors sync with origin in the background, stored as seconds, `0` for never.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FetchInterval {
+pub enum SyncInterval {
     Never,
     Seconds(NonZeroU32),
 }
 
-impl Default for FetchInterval {
+impl Default for SyncInterval {
     fn default() -> Self { Self::Seconds(NonZeroU32::new(60).expect("60 is not zero")) }
 }
 
-impl FromStr for FetchInterval {
+impl FromStr for SyncInterval {
     type Err = Error;
 
     fn from_str(value: &str) -> Result<Self> {
@@ -24,7 +24,7 @@ impl FromStr for FetchInterval {
     }
 }
 
-impl fmt::Display for FetchInterval {
+impl fmt::Display for SyncInterval {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Never => f.write_str("0"),
@@ -33,6 +33,6 @@ impl fmt::Display for FetchInterval {
     }
 }
 
-impl Setting for FetchInterval {
-    const KEY: &'static str = "cabaret.vscode.fetchInterval";
+impl Setting for SyncInterval {
+    const KEY: &'static str = "cabaret.vscode.syncInterval";
 }

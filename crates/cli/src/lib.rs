@@ -24,7 +24,7 @@ enum Command {
     /// Exchange change logs and branches with origin: merge its logs into yours, fast-forward
     /// your branches to its, then push yours back. Only origin's default branch and those of open
     /// changes with logs are exchanged; the rest are fetched as refs/remotes/origin/*.
-    Fetch,
+    Sync,
     /// Show your open changes as a stack graph.
     Home {
         /// Identity to view as; defaults to git's user.email.
@@ -61,8 +61,8 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,
-        Command::Fetch => {
-            for (change, reason) in cabaret()?.fetch()? {
+        Command::Sync => {
+            for (change, reason) in cabaret()?.sync()? {
                 println!("kept {change}: {reason}");
             }
         }

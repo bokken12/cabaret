@@ -361,7 +361,7 @@ impl<'txn> Metadata<'txn> {
     pub fn merge_origin(&self) -> Result<Option<RefEdit>> {
         let repo = &self.txn.repo;
         let other = repo.find_reference(&self.id().origin_log_ref())?.peel_to_id()?.detach();
-        let Some(local) = self.commit else { return Ok(Some(self.edit(other, "cabaret: fetch"))) };
+        let Some(local) = self.commit else { return Ok(Some(self.edit(other, "cabaret: sync"))) };
         let ours = commits(repo, local)?;
         if ours.contains_key(&other) {
             return Ok(None);
@@ -371,7 +371,7 @@ impl<'txn> Metadata<'txn> {
             true => other,
             false => self.merge_commit(local, &ours, other, &theirs)?,
         };
-        Ok(Some(self.edit(head, "cabaret: fetch")))
+        Ok(Some(self.edit(head, "cabaret: sync")))
     }
 
     /// A log commit on `local` and `other`, given `ours` and `theirs`, the commits of each. It
