@@ -1,1 +1,2 @@
-{"action":"set-reviewing","reviewing":"owners"}
+{"action":"remove-parent","parent":"forge-export-plan"}
+{"action":"add-parent","parent":"main"}
