@@ -1,2 +1,1 @@
-{"action":"mark","reviewer":"me@joel.place","file":"crates/lib/Cargo.toml","revision":"654f58fa8a4637d6f379eacafa00d5f4e5507585"}
-{"action":"mark","reviewer":"me@joel.place","file":"crates/lib/src/node.rs","revision":"654f58fa8a4637d6f379eacafa00d5f4e5507585"}
+{"action":"endorse","endorser":"me@joel.place"}
