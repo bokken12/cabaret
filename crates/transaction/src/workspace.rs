@@ -39,6 +39,18 @@ pub enum Head {
 }
 
 impl Head {
+    /// What `workspace` has checked out, read outside any transaction.
+    pub fn read(repo: &Repository, workspace: WorkspaceIdRef<'_>) -> Result<Self> {
+        Self::checked_out(&open(repo, workspace)?)
+    }
+
+    fn checked_out(workspace_repo: &Repository) -> Result<Self> {
+        Ok(match workspace_repo.head_name()? {
+            Some(name) => Head::Change(name.shorten().to_str()?.parse()?),
+            None => Head::Detached(RevisionId(workspace_repo.head_id()?.detach())),
+        })
+    }
+
     fn target(&self) -> Target {
         match self {
             Head::Change(id) => Target::Symbolic(id.branch_ref()),
@@ -83,10 +95,7 @@ impl<'txn> Workspace<'txn> {
 
     pub fn load(txn: &'txn Transaction<'txn>, id: WorkspaceIdRef<'_>) -> Result<Self> {
         let repo = open(&txn.repo, id)?;
-        let head = match repo.head_name()? {
-            Some(name) => Head::Change(name.shorten().to_str()?.parse()?),
-            None => Head::Detached(RevisionId(repo.head_id()?.detach())),
-        };
+        let head = Head::checked_out(&repo)?;
         let path = repo.workdir().ok_or_else(|| format!("workspace {id} has no working directory"))?.to_owned();
         Ok(Self { txn, id: id.into_owned(), path, head, drop_local_changes: false })
     }

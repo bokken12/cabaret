@@ -5,11 +5,17 @@ use std::{
     time::Duration,
 };
 
+<<<<<<< forge-event-import
 use cabaret_types::{
     ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, log::ForgeEvent, safeguard::SafeguardKind,
 };
+||||||| base
+use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
+=======
+use cabaret_types::{ChangeId, ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef, safeguard::SafeguardKind};
+>>>>>>> forge-event-fold
 use gix::{
-    ThreadSafeRepository,
+    Repository, ThreadSafeRepository,
     fs::SharedPermissions,
     lock::{Marker, acquire::Fail},
     refs::{
@@ -62,6 +68,17 @@ pub enum WorkspaceOp<'a> {
 }
 
 impl WorkspaceOp<'_> {
+    /// The change the workspace has checked out before the transaction; a new one holds none.
+    fn held(&self, repo: &Repository) -> Result<Option<ChangeId>> {
+        Ok(match self {
+            WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => match Head::read(repo, *id)? {
+                Head::Change(change) => Some(change),
+                Head::Detached(_) => None,
+            },
+            WorkspaceOp::Insert { .. } => None,
+        })
+    }
+
     fn id(&self) -> Result<WorkspaceId> {
         match self {
             WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => Ok(id.into_owned()),
@@ -151,16 +168,17 @@ impl Store {
     fn lock<Id: Ord + fmt::Display>(
         &self,
         resource: Resource,
-        ids: impl ExactSizeIterator<Item = Id>,
+        ids: impl IntoIterator<Item = Id>,
     ) -> Result<Vec<Marker>> {
-        let count = ids.len();
-        let ids: BTreeSet<Id> = ids.collect();
-        if ids.len() != count {
-            Err(format!("cannot lock the same {} twice", resource.dir_name()))?;
+        let mut unique = BTreeSet::new();
+        for id in ids {
+            if !unique.insert(id) {
+                Err(format!("cannot lock the same {} twice", resource.dir_name()))?;
+            }
         }
         let dir = self.locks.join(resource.dir_name());
-        let mut locks = Vec::with_capacity(ids.len());
-        for id in ids {
+        let mut locks = Vec::with_capacity(unique.len());
+        for id in unique {
             let mode = Fail::AfterDurationWithBackoff(LOCK_TIMEOUT);
             // TODO-someday(joel): sanitize string representation
             locks.push(Marker::acquire_to_hold_resource(
@@ -198,14 +216,27 @@ impl Store {
             &mut [Workspace<'txn>],
         ) -> Result<T>,
     {
-        // metadata, then branches, then workspaces, always, so two transactions cannot wait on
+        // metadata, then workspaces, then branches, always, so two transactions cannot wait on
         // each other
         let mut locks = self.lock(Resource::Metadata, metadata_ids.iter().copied())?;
-        locks.extend(self.lock(Resource::Branch, branch_ops.iter().map(BranchOp::id))?);
         let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
         locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
+        // A fast-forward writes a workspace's files under only the lock of the branch it holds,
+        // so touching a workspace takes that lock too. What it holds cannot change while its own
+        // lock is held.
+        let repo = self.repo.to_thread_local();
+        let mut held = Vec::new();
+        for op in workspace_ops {
+            if let Some(change) = op.held(&repo)?
+                && !branch_ops.iter().any(|op| *op.id() == *change)
+            {
+                held.push(change);
+            }
+        }
+        let branch_ids = branch_ops.iter().map(BranchOp::id).chain(held.iter().map(|change| &**change));
+        locks.extend(self.lock(Resource::Branch, branch_ids)?);
         // TODO(joel): retry on ref contention instead of surfacing it
-        let txn = Transaction::new(self.repo.to_thread_local(), locks, allow);
+        let txn = Transaction::new(repo, locks, allow);
 
         // TODO(joel): reconsider this?
         // Metadata needs no insert: a change without a log has empty metadata, and its first
@@ -221,17 +252,6 @@ impl Store {
         let mut workspaces = Vec::new();
         for op in workspace_ops {
             workspaces.push(op.before(&txn)?);
-        }
-
-        // TODO(joel): this seems like maybe the wrong semantics? maybe we should just automatically lock the branch?
-        // A fast-forward writes a workspace's files under only the lock of the branch it holds,
-        // so everything else writing there must hold that lock too.
-        for workspace in &workspaces {
-            if let Some(held) = workspace.change()
-                && !branch_ops.iter().any(|op| *op.id() == **held)
-            {
-                Err(format!("{held} must be declared to touch workspace {}", workspace.id()))?;
-            }
         }
 
         let out = f(&txn, &mut metadata, &mut branches, &mut workspaces)?;
@@ -349,9 +369,18 @@ impl Store {
         F: for<'txn> FnOnce(&'txn Metadata<'txn>) -> Result<Option<RefEdit>>,
     {
         let allow = BTreeSet::new();
+<<<<<<< forge-event-import
         let txn =
             Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
         if let Some(edit) = f(txn.metadata(id)?)? {
+||||||| base
+        let txn =
+            Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?, &allow);
+        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
+=======
+        let txn = Transaction::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id])?, &allow);
+        if let Some(edit) = txn.metadata(id)?.merge_origin()? {
+>>>>>>> forge-event-fold
             txn.repo.edit_reference(edit)?;
         }
         Ok(())
