@@ -38,7 +38,7 @@ Every imported commit carries its forge event id. Nothing links a local write to
 - A draft is `reviewing: none`; ready is `reviewing: owners`.
 - The base branch is the change's parent. A change with several parents gets no pull request.
 - Merged and closed both archive.
-- A pull request is opened when review is requested.
+- A pull request is opened when review is requested, by a device of one of the change's owners, once the change adds something to its parent.
 - Identities imported from GitHub are `github:<login>` and are never mapped to an email while importing, which would make devices write different commits.
 - The token is `GITHUB_TOKEN`, else `gh auth token`.
 - Descriptions do not sync in either direction.
@@ -52,12 +52,12 @@ Every imported commit carries its forge event id. Nothing links a local write to
 - `github::GitHub`, the client: it lists pull requests by last update over REST, and fetches one pull request's history over GraphQL a page at a time. It uses the `curl` crate gix already builds, so it adds no dependencies and nothing is async.
 - The import in `cab sync`, after origin's logs are merged and before anything is pushed: it lists the pull requests changed since the time kept in git config as `cabaret.forge.imported` (those open, the first time), and imports the history of each that is not from a fork and is either open or already has a log. Without a GitHub origin or a token it does nothing.
 - `Cabaret::forge_exports`, which says what exporting would do without doing it: for each open change you own with one parent, open its forge change once it is up for review, or bring that forge change's title and parent level with it. It compares the change with `Metadata::forge`, the fold of its forge events alone.
+- The export in `cab sync`, after pushing: it carries out `forge_exports` against GitHub, opening a pull request or editing its title and base. It is off unless the repository sets `cabaret.forge.export` (`cab config forge-export set true`), since it writes where people who do not use Cabaret will see.
 
 ## Remaining
 
-1. **Outbound, single-value fields.** Carry out `forge_exports` against GitHub after `cab sync` pushes.
-2. **Outbound approval.** Endorsing approves, with the endorser's own token.
-3. **Landing through the forge**, including recognising squash merges.
+1. **Outbound approval.** Endorsing approves, with the endorser's own token.
+2. **Landing through the forge**, including recognising squash merges.
 
 Needed before the import runs against a real repository: `cab sync` reporting push results per ref, and following a branch another tool force-pushed.
 
@@ -73,5 +73,7 @@ Needed before the import runs against a real repository: `cab sync` reporting pu
 - **Two versions serializing one event differently** write it twice. Importing skips an event id the log holds, which does not cover two devices importing at once.
 - **A renamed login** changes the identity an old event imports under.
 - **Surfacing a local edit that lost** to a forge event.
+- **Draft and closed do not export.** Setting `reviewing: none` or archiving a change leaves its pull request as it was.
+- **No way to set a title from the CLI**, only from the editor.
 - **Deleted head branches.** GitHub may delete the branch on merge, leaving a log without a branch.
 - **Comments**, and the other objects that need outbound linkage.

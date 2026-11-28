@@ -7,7 +7,10 @@ use cabaret_types::{
     log::{ForgeEvent, LogAction},
 };
 use curl::easy::{Easy, List};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{
+    Deserialize,
+    de::{DeserializeOwned, IgnoredAny},
+};
 use serde_json::json;
 
 /// The GraphQL query answered by a [`Response`]; takes `owner`, `name`, `number`, and `after`, the
@@ -383,7 +386,7 @@ impl GitHub {
                 "{API}/repos/{}/{}/pulls?state={state}&sort=updated&direction=desc&per_page={PER_PAGE}&page={page}",
                 self.owner, self.name
             );
-            let listed: Vec<Listed> = self.request(&url, None)?;
+            let listed: Vec<Listed> = self.request("GET", &url, None)?;
             let full = listed.len() == PER_PAGE;
             for pull_request in listed {
                 let at = time(&pull_request.updated_at)?;
@@ -412,7 +415,7 @@ impl GitHub {
         loop {
             let variables = json!({ "owner": self.owner, "name": self.name, "number": number, "after": after });
             let query = serde_json::to_vec(&json!({ "query": TIMELINE_QUERY, "variables": variables }))?;
-            let response: Response = self.request(&format!("{API}/graphql"), Some(&query))?;
+            let response: Response = self.request("POST", &format!("{API}/graphql"), Some(&query))?;
             let mut pull_request = response.pull_request()?;
             earlier.append(&mut pull_request.timeline_items.nodes);
             if !pull_request.timeline_items.page_info.has_next_page {
@@ -424,8 +427,42 @@ impl GitHub {
         }
     }
 
-    /// What GitHub answers at `url`: to a POST of `body` when given, else to a GET.
-    fn request<T: DeserializeOwned>(&self, url: &str, body: Option<&[u8]>) -> Result<T> {
+    /// The number of the pull request whose head is the branch `head` of this repository: the
+    /// open one, or unless only `open` will do, whichever changed most recently.
+    pub fn find(&self, head: &str, open: bool) -> Result<Option<u64>> {
+        let state = match open {
+            true => "open",
+            false => "all",
+        };
+        let head = Easy::new().url_encode(format!("{}:{head}", self.owner).as_bytes());
+        let url = format!(
+            "{API}/repos/{}/{}/pulls?head={head}&state={state}&sort=updated&direction=desc&per_page=1",
+            self.owner, self.name
+        );
+        let listed: Vec<Listed> = self.request("GET", &url, None)?;
+        Ok(listed.first().map(|pull_request| pull_request.number))
+    }
+
+    /// Open a pull request to merge the branch `head` into the branch `base`.
+    pub fn open(&self, head: &str, base: &str, title: &str) -> Result<()> {
+        let url = format!("{API}/repos/{}/{}/pulls", self.owner, self.name);
+        let body = serde_json::to_vec(&json!({ "head": head, "base": base, "title": title }))?;
+        self.request::<IgnoredAny>("POST", &url, Some(&body))?;
+        Ok(())
+    }
+
+    /// Set pull request `number`'s title and base branch, whichever are given.
+    pub fn edit(&self, number: u64, title: Option<&str>, base: Option<&str>) -> Result<()> {
+        let url = format!("{API}/repos/{}/{}/pulls/{number}", self.owner, self.name);
+        let mut fields = serde_json::Map::new();
+        fields.extend(title.map(|title| ("title".to_owned(), json!(title))));
+        fields.extend(base.map(|base| ("base".to_owned(), json!(base))));
+        self.request::<IgnoredAny>("PATCH", &url, Some(&serde_json::to_vec(&fields)?))?;
+        Ok(())
+    }
+
+    /// What GitHub answers to `method` at `url`, sent with `body` if given.
+    fn request<T: DeserializeOwned>(&self, method: &str, url: &str, body: Option<&[u8]>) -> Result<T> {
         let mut headers = List::new();
         headers.append(&format!("Authorization: Bearer {}", self.token))?;
         headers.append("Accept: application/vnd.github+json")?;
@@ -435,9 +472,9 @@ impl GitHub {
         easy.url(url)?;
         easy.http_headers(headers)?;
         if let Some(body) = body {
-            easy.post(true)?;
             easy.post_fields_copy(body)?;
         }
+        easy.custom_request(method)?;
         let mut answer = Vec::new();
         {
             let mut transfer = easy.transfer();

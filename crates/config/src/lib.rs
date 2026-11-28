@@ -2,6 +2,7 @@
 //! git config beside git's own.
 
 mod forge_cursor;
+mod forge_exporting;
 mod hints;
 mod identity;
 mod prefix;
@@ -9,6 +10,7 @@ mod setting;
 mod sync_interval;
 
 pub use forge_cursor::ForgeCursor;
+pub use forge_exporting::ForgeExporting;
 pub use hints::Hints;
 pub use prefix::Prefix;
 pub use setting::{Scope, Setting, get, set, unset};

@@ -38,10 +38,13 @@ fn check(fixture: &Fixture, expected: &Expect) {
 }
 
 #[test]
-fn opens_forge_change_once_up_for_review() {
+fn opens_forge_change_once_up_for_review_with_something_to_review() {
     let fixture = child();
+    fixture.commit("child", &[("greeting.txt", "hi\n")]);
     check(&fixture, &expect!["[]"]);
     fixture.request_review("child");
+    check(&fixture, &expect![[r#"[Open { change: "child", title: "child", parent: "main" }]"#]]);
+    fixture.request_review("other");
     check(&fixture, &expect![[r#"[Open { change: "child", title: "child", parent: "main" }]"#]]);
 }
 

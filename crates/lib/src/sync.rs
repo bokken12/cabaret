@@ -3,7 +3,7 @@ use std::{
     process::Command,
 };
 
-use cabaret_config::{ForgeCursor, Scope};
+use cabaret_config::{ForgeCursor, ForgeExporting, Scope};
 use cabaret_forge::github::{GitHub, PullRequest};
 use cabaret_transaction::BranchOp;
 use cabaret_types::{ChangeId, ChangeIdRef, Result, Reviewing, RevisionId, log::ForgeEvent};
@@ -26,7 +26,8 @@ impl Cabaret {
     /// Exchange logs and branches with origin, so that both end up having seen every write either
     /// has: fetch origin's, merge each of its logs into the local one, import what its forge
     /// changes have seen happen (see [`Self::import_forge`]), bring each synced branch level with
-    /// origin's, then push every local log and each synced branch origin is behind on.
+    /// origin's, push every local log and each synced branch origin is behind on, then tell the
+    /// forge what your changes say that it does not (see [`Self::export_forge`]).
     /// The synced branches are origin's default branch and those of unarchived changes with a
     /// log; any other is fetched only as `refs/remotes/origin/*`. Returns the synced branches left
     /// apart from origin's, each with why.
@@ -89,6 +90,7 @@ impl Cabaret {
         if !pushed.status.success() {
             Err(format!("pushing to origin failed: {}", String::from_utf8_lossy(&pushed.stderr).trim_end()))?;
         }
+        self.export_forge()?;
         Ok(apart)
     }
 
@@ -99,15 +101,8 @@ impl Cabaret {
     /// Cabaret knows, or nothing here authenticates to it: whoever can reach the forge imports
     /// for everyone, through the logs.
     fn import_forge(&self) -> Result<()> {
-        let mut repo = self.store.repo.to_thread_local();
-        // Config is read as of opening, and an earlier import may have moved the cursor since.
-        repo.reload()?;
-        let Some(url) = repo.find_remote("origin")?.url(Direction::Fetch).map(|url| url.to_bstring().to_string())
-        else {
-            return Ok(());
-        };
-        let Some((owner, name)) = GitHub::repository(&url) else { return Ok(()) };
-        let Some(github) = GitHub::connect(owner, name)? else { return Ok(()) };
+        let repo = self.reloaded()?;
+        let Some(github) = github(&repo)? else { return Ok(()) };
         let cursor = cabaret_config::get::<ForgeCursor>(&repo)?;
         let updated = github.updated(cursor.map(|cursor| cursor.0))?;
         for pull_request in &updated {
@@ -122,6 +117,43 @@ impl Cabaret {
             cabaret_config::set(&repo, Scope::Local, &ForgeCursor(latest))?;
         }
         Ok(())
+    }
+
+    /// Tell origin's forge what your changes say that their forge changes do not; see
+    /// [`Self::forge_exports`]. Runs after pushing, since a forge change needs its branch on
+    /// origin, and only where the repository has asked for it: unlike importing, it writes where
+    /// people who have never heard of Cabaret will see.
+    fn export_forge(&self) -> Result<()> {
+        let repo = self.reloaded()?;
+        if cabaret_config::get::<ForgeExporting>(&repo)?.unwrap_or_default() == ForgeExporting::Off {
+            return Ok(());
+        }
+        let Some(github) = github(&repo)? else { return Ok(()) };
+        for export in self.forge_exports()? {
+            match export {
+                // Another device may have opened it since the last import.
+                ForgeExport::Open { change, title, parent } => {
+                    if github.find(&change.to_string(), true)?.is_none() {
+                        github.open(&change.to_string(), &parent.to_string(), &title)?;
+                    }
+                }
+                ForgeExport::Edit { change, title, parent } => {
+                    let number = github
+                        .find(&change.to_string(), false)?
+                        .ok_or_else(|| format!("{change} has a forge change that GitHub does not list"))?;
+                    github.edit(number, title.as_deref(), parent.map(|parent| parent.to_string()).as_deref())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The repository as it now is on disk: config is otherwise read as of opening, and an
+    /// earlier sync may have written it since.
+    fn reloaded(&self) -> Result<gix::Repository> {
+        let mut repo = self.store.repo.to_thread_local();
+        repo.reload()?;
+        Ok(repo)
     }
 
     /// Whether a pull request with head branch `change_id` is imported. One from a fork is not,
@@ -163,6 +195,8 @@ impl Cabaret {
                 }
                 match metadata.forge()? {
                     None if metadata.reviewing == Reviewing::None => {}
+                    // A forge change must add something to its parent.
+                    None if txn.is_predecessor(txn.branch(&change)?.tip, txn.branch(parent)?.tip)? => {}
                     None => exports.push(ForgeExport::Open {
                         title: metadata.title.clone().unwrap_or_else(|| change.to_string()),
                         parent: parent.clone(),
@@ -220,6 +254,16 @@ impl Cabaret {
             Ok(false)
         })
     }
+}
+
+/// Origin's repository on GitHub; `None` when origin is not there, or nothing here authenticates
+/// to it.
+fn github(repo: &gix::Repository) -> Result<Option<GitHub>> {
+    let Some(url) = repo.find_remote("origin")?.url(Direction::Fetch).map(|url| url.to_bstring().to_string()) else {
+        return Ok(None);
+    };
+    let Some((owner, name)) = GitHub::repository(&url) else { return Ok(None) };
+    GitHub::connect(owner, name)
 }
 
 /// The changes named by the refs under `prefix`.

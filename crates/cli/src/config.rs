@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, Hints, Identity, Prefix, Result, Scope, Setting, SyncInterval};
+use cabaret_lib::{Cabaret, ForgeExporting, Hints, Identity, Prefix, Result, Scope, Setting, SyncInterval};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -18,6 +18,12 @@ pub enum ConfigCommand {
     Hints {
         #[command(subcommand)]
         command: SettingCommand<Hints>,
+    },
+    /// Whether syncing opens and edits pull requests on origin's forge to match your changes;
+    /// false unless set true.
+    ForgeExport {
+        #[command(subcommand)]
+        command: SettingCommand<ForgeExporting>,
     },
     /// Seconds between editors' background syncs with origin, 0 for never; 60 unless set.
     SyncInterval {
@@ -59,6 +65,7 @@ impl ConfigCommand {
         match self {
             ConfigCommand::Identity { command } => command.run(cabaret),
             ConfigCommand::Prefix { command } => command.run(cabaret),
+            ConfigCommand::ForgeExport { command } => command.run(cabaret),
             ConfigCommand::Hints { command } => command.run(cabaret),
             ConfigCommand::SyncInterval { command } => command.run(cabaret),
         }
