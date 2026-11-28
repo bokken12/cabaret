@@ -1,8 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/config.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/forge_exporting.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/lib.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/forge/src/github.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/export.rs","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/forge-sync.md","revision":"e88f10ea771c861adfc25a54f2a8880eefcbfa03"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
