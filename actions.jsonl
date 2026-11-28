@@ -1,13 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/config.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/lib.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/lib.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/sync_interval.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/node.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/sync.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/config.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/mod.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/sync.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/bugs.md","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"dba8d778cc9e1271ab693e6fc60c3d8cd12a27d1"}
+{"action":"endorse","endorser":"me+claude@joel.place"}
